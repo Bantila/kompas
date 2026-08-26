@@ -1,0 +1,70 @@
+# Обратный прокси к GigaChat для стенда за пределами России.
+#
+# Зачем. У Сбера два адреса, и доступны они не из одних и тех же мест:
+#   api.giga.chat              — ответы модели
+#   ngw.devices.sberbank.ru    — обмен Authorization key на токен доступа
+# С зарубежного хостинга второй может не отвечать вовсе, по обоим портам. Тогда
+# запрос до API просто не доходит, и подбор молча уходит на запасной алгоритм.
+#
+# Этот конфиг ставится на сервер В РОССИИ. Стенд обращается к нему, а он ходит
+# к Сберу со своего адреса. Через прокси идёт только трафик к Сберу: остальное
+# приложение продолжает ходить напрямую. Это важно — общий HTTPS_PROXY увёл бы
+# в Россию и обращения к Telegram, а он там ограничен, и бот бы сломался.
+#
+# Установка (не трогая уже работающие сайты):
+#   cp gigachat-proxy.conf.example /etc/nginx/sites-available/gigachat-proxy
+#   # заменить giga.example.ru на свой поддомен
+#   ln -s /etc/nginx/sites-available/gigachat-proxy /etc/nginx/sites-enabled/
+#   certbot certonly --nginx -d giga.example.ru
+#   nginx -t && systemctl reload nginx
+#
+# Затем в .env стенда:
+#   GIGACHAT_BASE_URL=https://giga.example.ru/v1
+#   GIGACHAT_AUTH_URL=https://giga.example.ru/oauth
+#   docker compose up -d backend      # именно up, restart не перечитывает .env
+#
+# Проверка: docker compose exec backend python -m app.check_ai
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name giga.example.ru;                    # <- свой поддомен
+
+    ssl_certificate     /etc/letsencrypt/live/giga.example.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/giga.example.ru/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # Ключ и ответы модели проходят через этот сервер. Он ваш, но лог с телами
+    # запросов здесь не нужен — в них уходит Authorization key.
+    access_log /var/log/nginx/gigachat-proxy.log;
+
+    # Модель отвечает не мгновенно, а запрос к ней ждёт до 30 секунд.
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+
+    # Обмен Authorization key на токен доступа.
+    location /oauth {
+        proxy_pass https://ngw.devices.sberbank.ru:9443/api/v2/oauth;
+        # Без этого nginx не отправляет SNI, и Сбер обрывает соединение с
+        # невнятной ошибкой TLS. По умолчанию директива выключена.
+        proxy_ssl_server_name on;
+        proxy_set_header Host ngw.devices.sberbank.ru;
+        # RqUID и Authorization передаёт сам SDK — заголовки не трогаем.
+    }
+
+    # Ответы модели.
+    location /v1/ {
+        proxy_pass https://api.giga.chat/v1/;
+        proxy_ssl_server_name on;
+        proxy_set_header Host api.giga.chat;
+    }
+
+    # Сертификат НУЦ Минцифры здесь не нужен: nginx по умолчанию не проверяет
+    # сертификат сервера, к которому проксирует (proxy_ssl_verify off).
+    # Стенд при этом общается с этим сервером по обычному Let's Encrypt.
+
+    location / {
+        return 404;
+    }
+}

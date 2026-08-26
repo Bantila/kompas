@@ -386,6 +386,7 @@ async def _ask_gigachat(scores: dict[str, Any]) -> tuple[list[dict[str, Any]], d
         scope=settings.gigachat_scope,
         model=settings.gigachat_model,
         base_url=settings.gigachat_base_url,
+        auth_url=settings.gigachat_auth_url,
         verify_ssl_certs=settings.gigachat_verify_ssl,
         ca_bundle_file=settings.gigachat_ca_bundle or None,
         timeout=settings.openrouter_timeout_seconds,

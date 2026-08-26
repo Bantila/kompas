@@ -399,6 +399,37 @@ HTTP редиректит на HTTPS, а `/.well-known/acme-challenge/` оста
 `/etc/letsencrypt/renewal-hooks/deploy/` скрипт с
 `docker compose -f ... exec nginx nginx -s reload`.
 
+### GigaChat со стенда за пределами России
+
+У Сбера два адреса, и доступны они не из одних и тех же мест: `api.giga.chat`
+отдаёт ответы модели, а `ngw.devices.sberbank.ru:9443` меняет Authorization key
+на токен. С зарубежного хостинга второй может не отвечать вовсе — тогда запрос
+до API не доходит, и подбор молча уходит на запасной алгоритм.
+
+Проверить, в этом ли дело:
+
+```bash
+docker compose exec backend python -m app.check_ai
+curl -m 10 -o /dev/null -w "%{http_code}
+" https://ngw.devices.sberbank.ru:9443/
+```
+
+Если адрес выдачи токена не отвечает, помогает обратный прокси на сервере в
+России — готовый конфиг лежит в `nginx/gigachat-proxy.conf.example`. Затем в
+`.env` стенда:
+
+```
+GIGACHAT_BASE_URL=https://giga.example.ru/v1
+GIGACHAT_AUTH_URL=https://giga.example.ru/oauth
+```
+
+Через прокси идёт только трафик к Сберу. Общий `HTTPS_PROXY` увёл бы туда же
+обращения к Telegram, а он в России ограничен — бот перестал бы работать.
+
+Сертификат НУЦ Минцифры при таком раскладе не нужен: nginx не проверяет
+сертификат сервера, к которому проксирует, а стенд общается с прокси по
+обычному Let's Encrypt.
+
 ### 5. Кнопка мини-приложения
 
 Когда стенд поднят и домен отвечает по HTTPS, остаётся повесить кнопку на бота:

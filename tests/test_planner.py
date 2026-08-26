@@ -318,3 +318,40 @@ async def test_history_shows_difficulties(client, full_answers, согласив
 
     assert история.status_code == 200
     assert история.json()["history"][0]["difficulties"] == ["easy", "medium", "hard"]
+
+
+# --- Адреса Сбера ------------------------------------------------------------
+
+
+async def test_both_sber_urls_reach_the_client(monkeypatch: pytest.MonkeyPatch, с_моделью) -> None:
+    """base_url и auth_url обязаны доехать до клиента оба.
+
+    Это два разных адреса, и доступны они не отовсюду одинаково: с зарубежного
+    хостинга адрес выдачи токена может не отвечать вовсе. Тогда оба
+    переставляются на обратный прокси в России — но только если auth_url
+    вообще передаётся. Потерять его при рефакторинге легко, а откажет он
+    молча: подбор просто уйдёт на запасной алгоритм.
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gigachat_base_url", "https://proxy.example.ru/v1")
+    monkeypatch.setattr(settings, "gigachat_auth_url", "https://proxy.example.ru/oauth")
+
+    переданное = {}
+
+    class ЗаглушкаКлиента:
+        def __init__(self, **kwargs):
+            переданное.update(kwargs)
+
+        def with_structured_output(self, *a, **k):
+            raise RuntimeError("дальше клиента не идём — проверяем только адреса")
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "langchain_gigachat",
+        type("модуль", (), {"GigaChat": ЗаглушкаКлиента}),
+    )
+
+    await plan_subjects(ТЕХНАРЬ)  # ошибка внутри уводит на запасной подбор, это нормально
+
+    assert переданное.get("base_url") == "https://proxy.example.ru/v1"
+    assert переданное.get("auth_url") == "https://proxy.example.ru/oauth"
