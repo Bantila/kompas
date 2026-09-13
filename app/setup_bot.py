@@ -30,16 +30,31 @@ ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
 def _set_env(key: str, value: str) -> None:
-    """Заменить значение в .env или дописать, если ключа там ещё нет."""
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-    pattern = re.compile(rf"^{re.escape(key)}=")
-    for index, line in enumerate(lines):
-        if pattern.match(line):
-            lines[index] = f"{key}={value}"
-            break
-    else:
-        lines.append(f"{key}={value}")
-    ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    """Заменить значение в .env или дописать, если ключа там ещё нет.
+
+    Запись — best-effort, а не обязательный шаг: при запуске в контейнере
+    (docker compose exec backend python -m app.setup_bot) `.env` внутри
+    контейнера — это не тот файл, что читает docker compose на хосте через
+    env_file, и вдобавок /app там root-owned, appuser в него не пишет. И то,
+    и то не повод падать — оператор в этом сценарии либо уже прописал
+    переменную в настоящем .env на хосте, либо допишет сам; здесь только
+    предупреждаем.
+    """
+    try:
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+        pattern = re.compile(rf"^{re.escape(key)}=")
+        for index, line in enumerate(lines):
+            if pattern.match(line):
+                lines[index] = f"{key}={value}"
+                break
+        else:
+            lines.append(f"{key}={value}")
+        ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(
+            f"не удалось записать {key} в {ENV_PATH} ({exc}) — "
+            "допишите вручную, если там ещё не так"
+        )
 
 
 async def _setup_max(client: httpx.AsyncClient, url: str, use_webhook: bool) -> None:
@@ -104,11 +119,14 @@ async def _setup_telegram(client: httpx.AsyncClient, url: str, use_webhook: bool
 
 
 async def main() -> int:
-    if len(sys.argv) < 2:
+    # --webhook — флаг, может стоять и до, и после адреса; адресом считаем
+    # первый аргумент, который флагом не является
+    args = [a for a in sys.argv[1:] if a != "--webhook"]
+    if not args:
         print("Укажите адрес: python -m app.setup_bot https://example.trycloudflare.com")
         return 1
 
-    url = sys.argv[1].rstrip("/")
+    url = args[0].rstrip("/")
     if not url.startswith("https://"):
         print("Нужен адрес по HTTPS — мессенджер открывает мини-приложение только по нему.")
         return 1
