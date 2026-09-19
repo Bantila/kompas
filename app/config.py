@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     # адрес мини-приложения — бот присылает на него кнопку
     app_public_url: str = ""
 
+    # Мини-приложение MAX открывается в вебвью со своего origin, который
+    # заранее неизвестен — поэтому по умолчанию открыт всем ("*"). Как
+    # только домен мини-приложения определён, сузить: один адрес или
+    # несколько через запятую, например
+    # CORS_ALLOWED_ORIGINS=https://web.max.ru,https://max.ru
+    cors_allowed_origins: str = "*"
+
     @field_validator("max_bot_username", "telegram_bot_username")
     @classmethod
     def _strip_at(cls, value: str) -> str:
@@ -79,6 +86,19 @@ class Settings(BaseSettings):
         мессенджера вместе с @, поэтому срезаем сами, а не полагаемся на то,
         что .env заполнят правильно."""
         return value.lstrip("@")
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """cors_allowed_origins → список для CORSMiddleware. "*" — особый
+        случай Starlette (разрешает любой origin), а не паттерн внутри
+        списка, поэтому не режем его через запятую вместе с обычными."""
+        if self.cors_allowed_origins.strip() == "*":
+            return ["*"]
+        return [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
     # Аутентификация. Секрет обязан задаваться через окружение. Если его нет,
     # приложение поднимется (чтобы не ломать локальный запуск), но подставит

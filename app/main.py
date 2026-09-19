@@ -59,11 +59,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Мини-приложение MAX открывается в вебвью со своего origin.
-# TODO: сузить до конкретного домена MAX, когда он будет известен.
+# Мини-приложение MAX открывается в вебвью со своего origin. По умолчанию
+# открыт всем ("*") — сузить через CORS_ALLOWED_ORIGINS в .env, как только
+# домен мини-приложения определён (см. app/config.py).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_settings().cors_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
