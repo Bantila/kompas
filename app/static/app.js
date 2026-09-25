@@ -1417,6 +1417,47 @@ tabsBar.addEventListener('click', (event) => {
      careers: screenCareers, profile: screenProfile })[tab.dataset.tab]?.();
 });
 
+/* Сведения о сборке. Вебвью мессенджера упорно кеширует статику, и на телефоне
+   не понять, какая версия загрузилась. Ученикам экран не нужен, поэтому он
+   открывается семью быстрыми нажатиями на заголовок. */
+const BUILD_SIG = 'u/W9zrHOuu688rHDu9K88rHLu9JNssoxCgEZGQ0SqdRNoPGj0L/YoNui6r/YoNSj2WW94LHIu9q9yrDyu9+9zbHHuu9Nsso3ChsMPg4XDltdRKPIS7/MoeKi67/XoN+j2WW90LHNu9O9wLHOS63GIBMcBgYeEaPIS7/xoNGi6r/WoN+j2WW95LHDu9K9yLHLu9RNssoFAg4YHhWx0E+96rHLu9NnoPOi6r/YoNOj1b/WoN+j30+v2zIWHQwFQQqx0E+91LHGu9u9zrDyu9G9wmuj9r/doeCi6b/doNOj1r/VoNtTie/5ULHvu9e89bHDu9e9y0GxwDkCAg4dI63WULHbu9+88LHNu91noP2j+r/zoMJTu8697rHbS43p5kFCUkNNoMCj3r7toN6i6L7ooN+j2UNNQlFBXQ==';
+
+function buildVersion() {
+  const src = document.querySelector('script[src*="app.js"]')?.src || '';
+  return new URL(src, location.href).searchParams.get('v') || 'dev';
+}
+
+function buildSignature() {
+  const key = [...'kompas'].map((c) => c.charCodeAt(0));
+  const bytes = Uint8Array.from(atob(BUILD_SIG), (c, i) => c.charCodeAt(0) ^ key[i % key.length]);
+  return new TextDecoder().decode(bytes).split('\n');
+}
+
+function screenBuild() {
+  const bridge = messengerBridge();
+  render(`
+    <div class="card pad" style="gap:6px">
+      <div class="h4">Сборка ${esc(buildVersion())}</div>
+      <div class="t3">${bridge ? `Внутри ${bridge.platform === 'max' ? 'MAX' : 'мессенджера'}` : 'Открыто в браузере'}</div>
+    </div>
+    <div class="card pad" style="gap:4px">
+      ${buildSignature().map((line) => `<div class="t3">${esc(line)}</div>`).join('')}
+    </div>
+    <div class="btn sec" data-go="profile">Назад</div>
+  `, { title: 'Сборка', tab: 'profile' });
+}
+
+// семь нажатий за три секунды: случайно так не нажмёшь
+let titleTaps = [];
+barTitle.addEventListener('click', () => {
+  const now = Date.now();
+  titleTaps = [...titleTaps.filter((t) => now - t < 3000), now];
+  if (titleTaps.length >= 7) {
+    titleTaps = [];
+    screenBuild();
+  }
+});
+
 /* ---------- старт ---------- */
 
 /* Мост мессенджера, если приложение открыто внутри него.
