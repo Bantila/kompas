@@ -53,7 +53,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./caddy:/etc/caddy:ro
+      - ./docker/caddy:/etc/caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     healthcheck:

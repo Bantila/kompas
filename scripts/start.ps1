@@ -3,10 +3,10 @@
 
     Проверяет базу, окружение и порт, накатывает миграции и поднимает сервер.
     Использование:
-        & ".\local deploy\start.bat"                обычный запуск
-        & ".\local deploy\start.bat" -Restart       освободить занятый порт
-        & ".\local deploy\start.bat" -Port 8001     другой порт
-        & ".\local deploy\start.bat" -LocalOnly     без доступа по локальной сети
+        & .\scripts\start.bat                обычный запуск
+        & .\scripts\start.bat -Restart       освободить занятый порт
+        & .\scripts\start.bat -Port 8001     другой порт
+        & .\scripts\start.bat -LocalOnly     без доступа по локальной сети
 
     Вызывается из корня проекта. Скрипт сам находит корень по requirements.txt,
     поэтому работает и если положить его обратно в корень.
@@ -20,7 +20,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Скрипт лежит в «local deploy», а работать нужно из корня проекта: там .venv,
+# Скрипт лежит в scripts, а работать нужно из корня проекта: там .venv,
 # .env и alembic.ini. Корень ищем по requirements.txt, чтобы скрипт остался
 # рабочим и если его положат обратно в корень.
 $root = Split-Path -Parent $PSScriptRoot

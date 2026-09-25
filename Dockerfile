@@ -41,7 +41,7 @@ RUN useradd --create-home --shell /bin/bash appuser
 
 COPY --chown=appuser:appuser . .
 
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod +x /app/docker/entrypoint.sh
 
 USER appuser
 
@@ -52,5 +52,5 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Миграции накатываются в entrypoint, дальше запускается uvicorn
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
