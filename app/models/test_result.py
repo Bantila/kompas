@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Index, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -11,6 +11,8 @@ from app.models._types import JSONColumn
 
 class TestResult(Base):
     __tablename__ = "test_results"
+    # история ученика читается по дате — составной индекс отдаёт её уже упорядоченной
+    __table_args__ = (Index("ix_test_results_user_completed", "user_id", "completed_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(

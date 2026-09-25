@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -15,6 +15,8 @@ class TaskAttempt(Base):
     """
 
     __tablename__ = "task_attempts"
+    # сводка по заданию берёт попытки ученика после даты выдачи
+    __table_args__ = (Index("ix_task_attempts_user_answered", "user_id", "answered_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
