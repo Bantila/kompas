@@ -4,8 +4,8 @@ from django.db import models
 
 
 class UserRole(models.TextChoices):
-    student = "student"
-    teacher = "teacher"
+    student = "student", "ученик"
+    teacher = "teacher", "педагог"
 
 
 class User(models.Model):

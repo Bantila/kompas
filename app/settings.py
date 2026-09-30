@@ -21,6 +21,9 @@ CSRF_TRUSTED_ORIGINS = [cfg.app_public_url] if cfg.app_public_url else []
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
+    # тема админки — до django.contrib.admin, иначе её шаблоны не перекроют стандартные
+    "unfold",
+    "unfold.contrib.filters",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -49,6 +52,8 @@ APPEND_SLASH = False
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
+        # свои шаблоны раньше шаблонов Unfold: главная страница админки — наша
+        "DIRS": [BASE_DIR / "app" / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -85,6 +90,8 @@ DATABASES = {"default": _database(cfg.database_url)}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LANGUAGE_CODE = "ru"
+# у темы Unfold нет русского перевода — свой лежит в app/locale
+LOCALE_PATHS = [BASE_DIR / "app" / "locale"]
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
@@ -107,3 +114,7 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
     "root": {"handlers": ["console"], "level": cfg.log_level},
 }
+
+# Админка: тема Unfold в цветах мини-приложения — красная стрелка компаса
+# (#D4442A, --north в styles.css) и бумажно-зелёные нейтральные тона.
+from app.admin_ui import UNFOLD  # noqa: E402,F401

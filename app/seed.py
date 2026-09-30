@@ -13,11 +13,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from datetime import UTC, datetime, timedelta
 
 import app.django_setup  # noqa: F401
-from app.models import Recommendation, SchoolClass, TestResult, User, UserRole
+from app.models import Recommendation, SchoolClass, TaskAttempt, TestResult, User, UserRole
 from app.services.ai_recommender import recommend_professions
+from app.services.error_classifier import classify
+from app.services.gamification import register_answer
+from app.services.integrity import check as check_answers
 from app.services.security import hash_password
+from app.services.task_bank import build_pack
 from app.services.test_scoring import calculate_scores, load_questions
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -95,6 +100,32 @@ def build_answers(archetype: dict, rng: random.Random) -> dict:
     return answers
 
 
+async def _practice(user: User, archetype: dict, после: datetime, rng: random.Random) -> None:
+    """Тренажёр после теста: задачи по сильным предметам, где-то с ошибками.
+
+    Идёт через register_answer, как живой ответ, — опыт, серии и достижения
+    получаются настоящими, а не нарисованными.
+    """
+    задачи = build_pack(subjects=archetype["subjects"], size=rng.randint(6, 14))
+    for номер, задача in enumerate(задачи):
+        верно = rng.random() < 0.72
+        ответ = задача["answer"] if верно else "0"
+        вердикт = classify(ответ, задача["answer"], задача["subject"])
+        когда = min(после + timedelta(hours=10 * (номер + 1)), datetime.now(UTC))
+        await TaskAttempt.objects.acreate(
+            user=user,
+            task_id=задача["id"],
+            subject=задача["subject"],
+            difficulty=задача["difficulty"],
+            user_answer=ответ,
+            is_correct=вердикт["is_correct"],
+            error_type=вердикт["error_type"],
+            confidence=вердикт["confidence"],
+            answered_at=когда,
+        )
+        await register_answer(user.id, вердикт["is_correct"], когда.astimezone())
+
+
 async def seed() -> None:
     rng = random.Random(42)  # фиксированный seed — демо воспроизводимо
 
@@ -137,8 +168,15 @@ async def seed() -> None:
         answers = build_answers(archetype, rng)
         scores = calculate_scores(answers)
         test_result = await TestResult.objects.acreate(
-            user=user, raw_answers=answers, computed_scores=scores
+            user=user,
+            raw_answers=answers,
+            computed_scores=scores,
+            integrity=check_answers(answers),
         )
+        # прохождения разнесены по двум неделям — иначе графики в админке
+        # и кабинете показывают один столбик за сегодня
+        пройден = datetime.now(UTC) - timedelta(days=rng.randint(1, 13), hours=rng.randint(0, 6))
+        await TestResult.objects.filter(pk=test_result.pk).aupdate(completed_at=пройден)
 
         ai_result = await recommend_professions(scores)
         await Recommendation.objects.acreate(
@@ -147,6 +185,7 @@ async def seed() -> None:
             professions=ai_result["professions"],
             model_used=ai_result["model_used"],
         )
+        await _practice(user, archetype, пройден, rng)
         created += 1
         logger.info(
             "  %s (%s) → %s",

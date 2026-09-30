@@ -1,5 +1,7 @@
 django==6.1.1
 django-ninja==1.7.1
+# тема админки: меню, дашборд, бейджи
+django-unfold==0.108.0
 django-cors-headers==4.9.0
 psycopg[binary]==3.3.6
 uvicorn[standard]==0.34.0

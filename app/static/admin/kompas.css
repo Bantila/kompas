@@ -1,0 +1,78 @@
+/* Сетка главной страницы админки. В сборку Tailwind у Unfold не входят
+   адаптивные классы вроде lg:grid-cols-4, поэтому раскладка — своими правилами. */
+
+.kompas-dashboard { display: flex; flex-direction: column; gap: 24px; }
+
+.kompas-hero {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;
+}
+.kompas-hero__title {
+  font-size: 26px; font-weight: 600; letter-spacing: -.01em;
+  color: var(--color-base-900);
+}
+.kompas-hero__lead { margin-top: 4px; color: var(--color-base-500); max-width: 60ch; }
+.kompas-hero__links { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.kompas-grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 720px) {
+  .kompas-grid--kpi { grid-template-columns: repeat(2, 1fr); }
+  .kompas-grid--three { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1100px) {
+  .kompas-grid--kpi { grid-template-columns: repeat(4, 1fr); }
+  .kompas-grid--wide { grid-template-columns: 2fr 1fr; }
+  .kompas-grid--three { grid-template-columns: repeat(3, 1fr); }
+}
+
+.kompas-kpi { display: flex; gap: 14px; align-items: flex-start; }
+.kompas-kpi__icon {
+  display: grid; place-items: center; width: 40px; height: 40px; flex: none;
+  border-radius: 10px; font-size: 22px;
+  background: var(--color-primary-50); color: var(--color-primary-600);
+}
+.kompas-kpi__title { font-size: 13px; color: var(--color-base-500); }
+.kompas-kpi__value {
+  font-size: 30px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums;
+  color: var(--color-base-900);
+}
+.kompas-kpi__footer { margin-top: 2px; font-size: 12px; color: var(--color-base-500); }
+
+.kompas-stack { display: flex; flex-direction: column; gap: 14px; }
+.kompas-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kompas-big {
+  font-size: 44px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums;
+  color: var(--color-primary-600);
+}
+.kompas-muted { font-size: 13px; color: var(--color-base-500); }
+
+.kompas-pill {
+  min-width: 36px; padding: 2px 10px; border-radius: 999px; text-align: center;
+  font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.kompas-pill--success { background: oklch(95% .05 150); color: oklch(42% .11 150); }
+.kompas-pill--warning { background: oklch(95% .06 85); color: oklch(47% .1 70); }
+.kompas-pill--danger { background: var(--color-primary-100); color: var(--color-primary-700); }
+
+.kompas-list { display: flex; flex-direction: column; gap: 10px; counter-reset: place; }
+.kompas-list li {
+  display: flex; align-items: center; gap: 10px; counter-increment: place;
+  color: var(--color-base-700);
+}
+.kompas-list li::before {
+  content: counter(place); display: grid; place-items: center; flex: none;
+  width: 22px; height: 22px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--color-base-100); color: var(--color-base-600);
+}
+.kompas-list li span { flex: 1; }
+.kompas-list li strong { font-variant-numeric: tabular-nums; color: var(--color-base-900); }
+
+/* тёмная тема Unfold вешает класс dark на html */
+.dark .kompas-hero__title,
+.dark .kompas-kpi__value,
+.dark .kompas-list li strong { color: var(--color-base-100); }
+.dark .kompas-list li { color: var(--color-base-300); }
+.dark .kompas-list li::before { background: var(--color-base-800); color: var(--color-base-300); }
+.dark .kompas-kpi__icon { background: color-mix(in oklch, var(--color-primary-500) 18%, transparent); color: var(--color-primary-400); }
+.dark .kompas-pill--success { background: oklch(35% .06 150); color: oklch(88% .09 150); }
+.dark .kompas-pill--warning { background: oklch(38% .06 80); color: oklch(90% .09 85); }
+.dark .kompas-pill--danger { background: var(--color-primary-900); color: var(--color-primary-200); }

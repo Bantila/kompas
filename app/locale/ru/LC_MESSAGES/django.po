@@ -1,0 +1,221 @@
+# Русский перевод строк темы админки Unfold: в самом пакете переводов нет.
+# После правки пересобрать .mo:
+#   python app/locale/compile.py
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ru\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "Welcome back to"
+msgstr "С возвращением в"
+
+msgid "Return to site"
+msgstr "Вернуться на сайт"
+
+msgid "Forgotten your password or username?"
+msgstr "Забыли логин или пароль?"
+
+msgid "Toggle password visibility"
+msgstr "Показать или скрыть пароль"
+
+msgid "You have been successfully logged out from the administration"
+msgstr "Вы вышли из админки"
+
+msgid "Search apps and models..."
+msgstr "Поиск по разделам…"
+
+msgid "All applications"
+msgstr "Все разделы"
+
+msgid "Toggle sidebar"
+msgstr "Свернуть меню"
+
+msgid "Toggle dark/light mode"
+msgstr "Светлая или тёмная тема"
+
+msgid "Dark"
+msgstr "Тёмная"
+
+msgid "Light"
+msgstr "Светлая"
+
+msgid "System"
+msgstr "Как в системе"
+
+msgid "Filters"
+msgstr "Фильтры"
+
+msgid "Toggle filter"
+msgstr "Фильтры"
+
+msgid "Apply Filters"
+msgstr "Применить"
+
+msgid "Reset filters"
+msgstr "Сбросить фильтры"
+
+msgid "Filter by %(field_name)s"
+msgstr "Период: %(field_name)s"
+
+msgid "Select action"
+msgstr "Выберите действие"
+
+msgid "Select action to run"
+msgstr "Выберите действие"
+
+msgid "Run the selected action"
+msgstr "Выполнить"
+
+msgid "Select"
+msgstr "Выбрать"
+
+msgid "Select value"
+msgstr "Выберите значение"
+
+msgid "Select record"
+msgstr "Выберите запись"
+
+msgid "No results found"
+msgstr "Ничего не найдено"
+
+msgid "Nothing matched your search"
+msgstr "По запросу ничего не нашлось"
+
+msgid "This page yielded into no results. Create a new item or reset your filters."
+msgstr "Здесь пока пусто. Добавьте запись или сбросьте фильтры."
+
+msgid "No data"
+msgstr "Нет данных"
+
+msgid "Not enough data."
+msgstr "Недостаточно данных."
+
+msgid "Type to search"
+msgstr "Начните вводить для поиска"
+
+msgid "Recent searches"
+msgstr "Недавние запросы"
+
+msgid "Add new item"
+msgstr "Добавить"
+
+msgid "Create new record"
+msgstr "Новая запись"
+
+msgid "Add row"
+msgstr "Добавить строку"
+
+msgid "Row"
+msgstr "Строка"
+
+msgid "Edit"
+msgstr "Изменить"
+
+msgid "Update"
+msgstr "Обновить"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Submit"
+msgstr "Отправить"
+
+msgid "Next"
+msgstr "Далее"
+
+msgid "Previous"
+msgstr "Назад"
+
+msgid "Go back"
+msgstr "Назад"
+
+msgid "Collapse"
+msgstr "Свернуть"
+
+msgid "General"
+msgstr "Основное"
+
+msgid "Permissions"
+msgstr "Права доступа"
+
+msgid "Group permissions"
+msgstr "Права группы"
+
+msgid "User permissions"
+msgstr "Права пользователя"
+
+msgid "Manage user"
+msgstr "Управление"
+
+msgid "Manage group"
+msgstr "Управление"
+
+msgid "After you've created a user, you’ll be able to edit more user options."
+msgstr "После создания пользователя станут доступны остальные настройки."
+
+msgid "Change History"
+msgstr "История изменений"
+
+msgid "This object doesn't have a change history."
+msgstr "У этой записи ещё нет истории изменений."
+
+msgid "Date"
+msgstr "Дата"
+
+msgid "Date from"
+msgstr "Дата с"
+
+msgid "Date to"
+msgstr "Дата по"
+
+msgid "From"
+msgstr "С"
+
+msgid "To"
+msgstr "По"
+
+msgid "True"
+msgstr "Да"
+
+msgid "False"
+msgstr "Нет"
+
+msgid "Choose file to upload"
+msgstr "Выберите файл"
+
+msgid "Current file"
+msgstr "Текущий файл"
+
+msgid "Image preview"
+msgstr "Просмотр изображения"
+
+msgid "Open command tool"
+msgstr "Командная строка"
+
+msgid "Open shortcuts list"
+msgstr "Горячие клавиши"
+
+msgid "Available shortcuts"
+msgstr "Горячие клавиши"
+
+msgid "Global shortcuts"
+msgstr "Везде"
+
+msgid "Changelist shortcuts"
+msgstr "В списках"
+
+msgid "Command tool shortcuts"
+msgstr "В командной строке"
+
+msgid "Navigate"
+msgstr "Перейти"
+
+msgid "Open selection"
+msgstr "Открыть"
+
+msgid "Open selection in new tab"
+msgstr "Открыть в новой вкладке"
+
+msgid "This item will be deleted."
+msgstr "Эта запись будет удалена."

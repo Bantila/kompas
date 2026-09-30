@@ -1,0 +1,94 @@
+{% extends 'admin/base.html' %}
+{% load i18n unfold %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="kompas-dashboard">
+    <div class="kompas-hero">
+        <div>
+            <h1 class="kompas-hero__title">Добрый день, {{ request.user.get_short_name|default:request.user.get_username }}</h1>
+            <p class="kompas-hero__lead">Сводка по «Компасу»: кто проходит тест, что советует модель и можно ли верить ответам.</p>
+        </div>
+        <div class="kompas-hero__links">
+            {% component "unfold/components/button.html" with href="/static/teacher.html" variant="default" %}Кабинет педагога{% endcomponent %}
+            {% component "unfold/components/button.html" with href="/api/docs" variant="default" %}API · Swagger{% endcomponent %}
+        </div>
+    </div>
+
+    <div class="kompas-grid kompas-grid--kpi">
+        {% for kpi in kpis %}
+            {% component "unfold/components/card.html" with href=kpi.href %}
+                <div class="kompas-kpi">
+                    <span class="material-symbols-outlined kompas-kpi__icon">{{ kpi.icon }}</span>
+                    <div>
+                        <div class="kompas-kpi__title">{{ kpi.title }}</div>
+                        <div class="kompas-kpi__value">{{ kpi.value }}</div>
+                        <div class="kompas-kpi__footer">{{ kpi.footer }}</div>
+                    </div>
+                </div>
+            {% endcomponent %}
+        {% endfor %}
+    </div>
+
+    <div class="kompas-grid kompas-grid--wide">
+        {% component "unfold/components/card.html" with title="Прохождения теста за 14 дней" title_icon="bar_chart" %}
+            {% component "unfold/components/chart/bar.html" with data=tests_chart height=260 %}{% endcomponent %}
+        {% endcomponent %}
+
+        {% component "unfold/components/card.html" with title="Кто подобрал профессии" title_icon="psychology" %}
+            <div class="kompas-stack">
+                <div class="kompas-big">{{ model_share }}%</div>
+                <p class="kompas-muted">рекомендаций подобрала модель. Если она недоступна, профессии подбираются по ведущему типу Голланда — ученик всё равно получает ответ.</p>
+                {% for row in sources %}
+                    <div class="kompas-row">
+                        {% component "unfold/components/text.html" %}{{ row.title }}{% endcomponent %}
+                        <span class="kompas-pill kompas-pill--{{ row.variant }}">{{ row.count }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endcomponent %}
+    </div>
+
+    <div class="kompas-grid kompas-grid--three">
+        {% component "unfold/components/card.html" with title="Доверие к ответам" title_icon="fact_check" %}
+            <div class="kompas-stack">
+                {% for row in trust %}
+                    <div class="kompas-row">
+                        {% component "unfold/components/text.html" %}{{ row.title }}{% endcomponent %}
+                        <span class="kompas-pill kompas-pill--{{ row.variant }}">{{ row.count }}</span>
+                    </div>
+                {% endfor %}
+                <p class="kompas-muted">Проверка ничего не блокирует: педагог видит пометку рядом с цифрами ученика. Всего прохождений: {{ trust_total }}.</p>
+            </div>
+        {% endcomponent %}
+
+        {% component "unfold/components/card.html" with title="Частые профессии" title_icon="work" %}
+            {% if top_professions %}
+                <ol class="kompas-list">
+                    {% for name, count in top_professions %}
+                        <li><span>{{ name }}</span><strong>{{ count }}</strong></li>
+                    {% endfor %}
+                </ol>
+            {% else %}
+                <p class="kompas-muted">Пока никто не прошёл тест.</p>
+            {% endif %}
+        {% endcomponent %}
+
+        {% component "unfold/components/card.html" with title="Направления" title_icon="explore" %}
+            <div class="kompas-stack">
+                {% for name, count in top_categories %}
+                    {% widthratio count categories_total 100 as share %}
+                    {% component "unfold/components/progress.html" with title=name description=count value=share %}{% endcomponent %}
+                {% empty %}
+                    <p class="kompas-muted">Появятся после первых прохождений.</p>
+                {% endfor %}
+            </div>
+        {% endcomponent %}
+    </div>
+</div>
+{% endblock %}
