@@ -1,4 +1,4 @@
-# Единственная точка входа снаружи. Статику и API обслуживает FastAPI.
+# Единственная точка входа снаружи. Статику и API обслуживает Django.
 (backend) {
 	reverse_proxy backend:8000 {
 		# X-Forwarded-For Caddy выставляет сам: rate_limit.py берёт из него последний адрес.

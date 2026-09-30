@@ -35,18 +35,20 @@
 
 ## Живой стенд
 
-**https://testmaxapp.vltx.eu.cc** — развёрнутая версия со всем стеком:
-Текущая доступность стенда и его переход на Caddy локальной проверкой
-конфигурации не подтверждаются.
+**https://kompas-django.layero.app** — развёрнутая версия со всем стеком:
+хостинг Layero (серверы в Москве), база PostgreSQL в Neon, модель GigaChat-2.
+Стенд собирается автоматически из ветки `django`.
 
 | Адрес | Что там |
 |---|---|
-| https://testmaxapp.vltx.eu.cc/ | мини-приложение ученика |
-| https://testmaxapp.vltx.eu.cc/static/teacher.html | кабинет педагога (ID `teacher_demo`, класс `7Б`) |
-| https://testmaxapp.vltx.eu.cc/docs | Swagger-документация API |
+| https://kompas-django.layero.app/ | мини-приложение ученика |
+| https://kompas-django.layero.app/static/teacher.html | кабинет педагога: `teacher@demo.ru` / `demo1234`, класс `7Б` |
+| https://kompas-django.layero.app/admin/ | панель администрирования с дашбордом |
+| https://kompas-django.layero.app/api/docs | Swagger-документация API |
 
-Если ключ GigaChat в `.env` не задан, рекомендации приходят от запасного
-rule-based алгоритма с честной пометкой — сервис остаётся рабочим целиком.
+Контейнер на бесплатном тарифе засыпает без запросов: первое открытие после
+паузы занимает 15–20 секунд. Если GigaChat недоступен, рекомендации приходят
+от запасного rule-based алгоритма с честной пометкой — сервис остаётся рабочим.
 
 ## Посмотреть без установки
 
@@ -79,8 +81,8 @@ python demo/build_demo.py
 ### Весь стек в Docker
 
 ```bash
-git clone https://github.com/Bantila/Kompassferum.git
-cd Kompassferum
+git clone https://github.com/Bantila/kompas.git
+cd kompas
 
 cp .env.example .env
 # открыть .env и заполнить: POSTGRES_PASSWORD, JWT_SECRET, GIGACHAT_CREDENTIALS
@@ -102,7 +104,7 @@ curl http://localhost/health
 |---|---|
 | http://localhost/ | мини-приложение ученика: тест, тренажёр, профессии |
 | http://localhost/static/teacher.html | кабинет педагога: классы, рейтинг, задания, сводка |
-| http://localhost/docs | Swagger-документация API |
+| http://localhost/api/docs | Swagger-документация API |
 | http://localhost/admin/ | Django admin: все данные сервиса (вход — `docker compose exec backend python manage.py createsuperuser`) |
 
 Демо-доступ педагога: `teacher@demo.ru` / `demo1234`. Код класса для учеников —
@@ -327,8 +329,8 @@ Fail2ban читает журналы и временно банит адреса
 
 ```bash
 mkdir -p /opt && cd /opt
-git clone https://github.com/Bantila/Kompassferum.git
-cd Kompassferum
+git clone https://github.com/Bantila/kompas.git
+cd kompas
 cp .env.example .env
 ```
 

@@ -1,4 +1,4 @@
-# Руководство по деплою Kompassferum
+# Руководство по деплою «Компаса»
 
 Пошаговая инструкция: подготовка сервера → защита сервера → установка окружения → деплой.
 
@@ -144,13 +144,13 @@ dpkg-reconfigure --priority=low unattended-upgrades
 
 ```bash
 mkdir -p opt && cd opt
-git clone https://github.com/Gemr007/Kompassferum.git
-cd Kompassferum
+git clone https://github.com/Bantila/kompas.git
+cd kompas
 ```
 
 - `mkdir -p opt` — создаёт папку `opt` (флаг `-p` не выдаёт ошибку, если папка уже существует).
-- `git clone ...` — скачивает исходный код репозитория Kompassferum в текущую папку.
-- `cd Kompassferum` — переходит в папку с проектом.
+- `git clone ...` — скачивает исходный код репозитория в текущую папку.
+- `cd kompas` — переходит в папку с проектом.
 
 ### 3.2 Создать .env файл
 

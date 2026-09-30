@@ -18,8 +18,9 @@
 ```bash
 apt update && apt upgrade -y
 curl -fsSL https://get.docker.com | sh
-apt install certbot python3-certbot-nginx -y
 ```
+
+Веб-сервер и Certbot на хост не ставятся: HTTPS обслуживает Caddy в Docker Compose.
 
 ### 2. Защита сервера
 
@@ -51,9 +52,8 @@ apt install unattended-upgrades -y && dpkg-reconfigure --priority=low unattended
 
 ```bash
 mkdir -p /opt && cd /opt
-git clone https://github.com/Bantila/Kompassferum.git
-cd Kompassferum
-git checkout dev   # или main, когда миграция туда влита
+git clone https://github.com/Bantila/kompas.git
+cd kompas
 cp .env.example .env
 ```
 
@@ -77,19 +77,21 @@ openssl rand -hex 32                                        # MAX_WEBHOOK_SECRET
 | `MAX_WEBHOOK_SECRET` | сгенерированный секрет вебхука |
 | `APP_PUBLIC_URL` | адрес мини-приложения, с `https://` |
 
-### 4. Сертификат и запуск
+### 4. Запуск с HTTPS
+
+Направьте DNS домена на IP сервера, затем:
 
 ```bash
-certbot certonly --standalone -d example.ru -d www.example.ru \
-  --email you@example.ru --agree-tos -n
-
-mkdir -p certbot-webroot
 echo "DOMAIN=example.ru" >> .env
-
 docker compose -f docker-compose.yml -f docker-compose.ssl.yml up -d --build
 ```
 
-Миграции накатываются автоматически при старте контейнера.
+Caddy сам получит сертификат и будет его продлевать. Миграции Django
+накатываются автоматически при старте контейнера.
+
+Доступ в панель администрирования `/admin/` — задайте в `.env`
+`DJANGO_SUPERUSER_PASSWORD` до первого запуска (администратор заведётся сам)
+или выполните `docker compose exec backend python manage.py createsuperuser`.
 
 Проверить:
 
@@ -100,24 +102,25 @@ curl https://example.ru/health
 # {"status":"ok","database":"ok"}
 ```
 
-Продление сертификата: скрипт в `/etc/letsencrypt/renewal-hooks/deploy/` с
-`docker compose -f ... exec nginx nginx -s reload` — HTTP уже редиректит на
-HTTPS, `/.well-known/acme-challenge/` остаётся доступным без остановки nginx.
-
 Дальше — общий для обоих сценариев раздел «Специфика MAX» ниже.
 
 ---
 
 ## Сценарий Б: обновление стенда
 
-Для уже поднятого сервера (например, `testmaxapp.vltx.eu.cc`), где нужно
-подтянуть миграцию на MAX из ветки `dev`.
+Для уже поднятого сервера, где нужно подтянуть свежую версию из `main`.
+
+> **Стенд на версии до перехода на Django.** Схема базы у Django-версии создаётся
+> заново и со старой базой не совместима: поднимите новую базу (новый том
+> PostgreSQL или отдельную базу). Не удаляйте том с данными, пока не
+> убедились, что они больше не нужны, — `docker compose down -v` стирает
+> их безвозвратно.
 
 ```bash
-cd /opt/Kompassferum   # путь к исходникам на сервере
+cd /opt/kompas   # путь к исходникам на сервере
 git fetch origin
-git checkout dev
-git pull origin dev
+git checkout main
+git pull origin main
 ```
 
 Дописать в `.env` новые переменные, если их там ещё нет
@@ -136,7 +139,7 @@ grep -q '^MAX_BOT_USERNAME=' .env || echo 'MAX_BOT_USERNAME=' >> .env
 docker compose -f docker-compose.yml -f docker-compose.ssl.yml up -d --build
 ```
 
-Миграции БД (если появились новые) накатятся сами при старте контейнера.
+Миграции Django (если появились новые) накатятся сами при старте контейнера.
 Проверить:
 
 ```bash

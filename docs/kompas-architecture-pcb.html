@@ -210,14 +210,15 @@
           <div class="lbl">Interface</div>
           <ul>
             <li>MAX Mini App (WebView)</li>
-            <li>MAX Bridge → initData</li>
+            <li>max-web-app.js → initData</li>
+            <li>Чат-бот MAX (вебхук)</li>
           </ul>
         </div>
         <div class="chip-block">
           <div class="lbl">Payload</div>
           <ul>
             <li>Блок A — интересы, 12</li>
-            <li>Блок B — знания, 52</li>
+            <li>Блок B — 5 предметов, 15</li>
             <li>Блок C — софт-скиллы, 10</li>
           </ul>
         </div>
@@ -229,14 +230,14 @@
         <div class="pins-bottom"><div class="pin"></div><div class="pin"></div><div class="pin"></div></div>
         <div class="chip-id">U2</div>
         <div class="chip-name">Frontend</div>
-        <div class="chip-stack">React · TypeScript · Vite</div>
+        <div class="chip-stack">HTML · CSS · JS без сборки</div>
         <div class="chip-block">
           <div class="lbl">Views</div>
           <ul>
-            <li>Онбординг</li>
-            <li>Тест (3 блока)</li>
+            <li>Согласие и онбординг</li>
+            <li>Адаптивный тест, 37 вопросов</li>
             <li>Результаты + radar-диаграмма</li>
-            <li>История / кабинет педагога</li>
+            <li>Тренажёр · кабинет педагога</li>
           </ul>
         </div>
       </div>
@@ -247,20 +248,21 @@
         <div class="pins-bottom"><div class="pin"></div><div class="pin"></div><div class="pin"></div><div class="pin"></div></div>
         <div class="chip-id">U3</div>
         <div class="chip-name">Backend</div>
-        <div class="chip-stack">FastAPI · Python 3.12 · nginx</div>
+        <div class="chip-stack">Django · Ninja · Python 3.12</div>
         <div class="chip-block">
           <div class="lbl">Core functions</div>
           <ul>
-            <li>HMAC-валидация initData</li>
-            <li>calculate_scores()</li>
-            <li>Запись в PostgreSQL</li>
+            <li>HMAC-валидация initData · JWT</li>
+            <li>calculate_scores() · проверка доверия</li>
+            <li>Согласия 152-ФЗ · Django admin</li>
           </ul>
         </div>
         <div class="chip-block">
           <div class="lbl">AI-модуль (встроен в узел)</div>
           <ul>
             <li class="highlight-li">GigaChat API — GigaChat-2</li>
-            <li>Генерация топ-5 профессий</li>
+            <li>План теста · топ-5 профессий</li>
+            <li>Разбор ошибок в тренажёре</li>
             <li>Fallback: rule-based алгоритм</li>
           </ul>
         </div>
@@ -276,10 +278,10 @@
         <div class="chip-block">
           <div class="lbl">Tables</div>
           <ul>
-            <li>users</li>
-            <li>test_results</li>
-            <li>recommendations</li>
-            <li>professions</li>
+            <li>users · school_classes</li>
+            <li>test_results · recommendations</li>
+            <li>consents · task_attempts</li>
+            <li>+ ещё 6 таблиц</li>
           </ul>
         </div>
       </div>
@@ -291,11 +293,11 @@
   <div class="signal">
     <div class="signal-title">Сигнальный путь (сквозной процесс)</div>
     <div class="sig-row">
-      <div class="sig-step"><div class="dot"></div><div class="n">01</div><p>Открытие Mini App, авторизация MAX Bridge</p></div>
+      <div class="sig-step"><div class="dot"></div><div class="n">01</div><p>Открытие Mini App, передача initData</p></div>
       <div class="sig-line"></div>
       <div class="sig-step"><div class="dot"></div><div class="n">02</div><p>U3 валидирует HMAC-подпись</p></div>
       <div class="sig-line"></div>
-      <div class="sig-step"><div class="dot"></div><div class="n">03</div><p>Прохождение теста, 3 блока</p></div>
+      <div class="sig-step"><div class="dot"></div><div class="n">03</div><p>Адаптивный тест: GigaChat выбирает 5 предметов</p></div>
       <div class="sig-line"></div>
       <div class="sig-step"><div class="dot"></div><div class="n">04</div><p>Ответы поступают на U3</p></div>
       <div class="sig-line"></div>
@@ -315,10 +317,10 @@
     <table>
       <tr><th>Поз.</th><th>Наименование</th><th>Назначение</th></tr>
       <tr><td class="ref">U1</td><td>MAX Client</td><td>WebView-контейнер, точка входа пользователя</td></tr>
-      <tr><td class="ref">U2</td><td>Frontend (React)</td><td>Интерфейс, с которым работает ученик и педагог</td></tr>
-      <tr><td class="ref">U3</td><td>Backend (FastAPI) + AI-модуль GigaChat-2</td><td>Бизнес-логика, авторизация, генерация рекомендаций</td></tr>
+      <tr><td class="ref">U2</td><td>Frontend (HTML, CSS, JS)</td><td>Интерфейс, с которым работает ученик и педагог</td></tr>
+      <tr><td class="ref">U3</td><td>Backend (Django, Django Ninja) + AI-модуль GigaChat-2</td><td>Бизнес-логика, авторизация, генерация рекомендаций</td></tr>
       <tr><td class="ref">U4</td><td>PostgreSQL 16</td><td>Персистентное хранилище данных</td></tr>
-      <tr><td class="ref">—</td><td>nginx</td><td>Reverse proxy, единая точка входа по HTTPS</td></tr>
+      <tr><td class="ref">—</td><td>Caddy</td><td>Reverse proxy, единая точка входа по HTTPS</td></tr>
     </table>
   </div>
 
