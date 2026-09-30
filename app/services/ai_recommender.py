@@ -1,8 +1,7 @@
 """Подбор профессий моделью + rule-based запасной вариант.
 
-Провайдер выбирается настройкой AI_PROVIDER: gigachat (российская модель,
-основной вариант), openrouter или none. Промпт, разбор ответа и запасной
-алгоритм общие — меняется только то, у кого спрашиваем.
+Модель — GigaChat (AI_PROVIDER=gigachat); AI_PROVIDER=none оставляет только
+запасной алгоритм по типам Голланда.
 
 Наружу торчит одна функция — recommend_professions(). Она никогда не бросает
 исключение из-за проблем с моделью: сбой сети, таймаут, кривой JSON или
@@ -15,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any, Literal
 
 import httpx
@@ -45,23 +43,6 @@ SYSTEM_PROMPT = """Ты — профориентационный ассисте�
 - category — одно из: технологии, наука, творчество, услуги, менеджмент, медицина, образование.
 
 Ровно 5 элементов в списке профессий."""
-
-# GigaChat проверяет ответ по JSON-схеме на своей стороне, поэтому просить
-# его «верни валидный JSON» не нужно. OpenRouter такого не умеет — ему
-# формат приходится описывать словами.
-JSON_FORMAT_TAIL = """
-
-Ответ верни СТРОГО валидным JSON без markdown-обёртки, без ``` и без пояснений до или после:
-{
-  "professions": [
-    {
-      "name": "название профессии",
-      "reasoning": "2–3 предложения с опорой на баллы",
-      "subjects_to_improve": ["математика", "физика"],
-      "category": "технологии"
-    }
-  ]
-}"""
 
 CATEGORIES = (
     "технологии", "наука", "творчество", "услуги", "менеджмент", "медицина", "образование",
@@ -189,20 +170,6 @@ _TYPE_LABELS = {
     "conventional": "организованный (тебе нравится порядок, данные и чёткий план)",
 }
 
-_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
-
-
-def _strip_markdown_fence(content: str) -> str:
-    """Модели любят оборачивать JSON в ```json ... ``` — снимаем обёртку."""
-    cleaned = _JSON_FENCE_RE.sub("", content.strip()).strip()
-    # если вокруг JSON остался текст — берём кусок от первой { до последней }
-    if not cleaned.startswith("{"):
-        start, end = cleaned.find("{"), cleaned.rfind("}")
-        if start != -1 and end > start:
-            cleaned = cleaned[start : end + 1]
-    return cleaned
-
-
 STRONG_SUBJECT_THRESHOLD = 4.0
 
 
@@ -256,37 +223,34 @@ def build_fallback(scores: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_professions(payload: Any) -> list[dict[str, Any]]:
-    """Ответ LLM → список профессий. Бросает ValueError, если структура не та."""
-    if not isinstance(payload, dict):
-        raise ValueError("ответ LLM — не JSON-объект")
-    professions = payload.get("professions")
-    if not isinstance(professions, list) or not professions:
-        raise ValueError("в ответе LLM нет непустого списка professions")
-
-    result = []
-    for item in professions[:5]:
-        if not isinstance(item, dict) or not item.get("name"):
-            raise ValueError("элемент professions без поля name")
-        subjects = item.get("subjects_to_improve") or []
-        result.append(
-            {
-                "name": str(item["name"]),
-                "reasoning": str(item.get("reasoning", "")),
-                "subjects_to_improve": [str(s) for s in subjects]
-                if isinstance(subjects, list)
-                else [str(subjects)],
-                "category": str(item.get("category", "не указана")),
-            }
-        )
-    return result
-
-
 MISTAKE_PROMPT = """Ты — доброжелательный репетитор для школьника 12–16 лет.
 
 Ученик ошибся в задаче. Объясни коротко (2–3 предложения, на «ты»), в чём именно
 ошибка и как решать правильно. Без морализаторства и без «ты невнимателен».
 Опирайся на данные ниже. Ответь простым текстом, без markdown и без списков."""
+
+
+def gigachat_model(temperature: float = 0.3, **extra: Any):
+    """Клиент GigaChat с настройками стенда. Импорт внутри: без выбранной
+    модели тянуть langchain в память незачем.
+
+    SDK сам меняет Authorization key на токен доступа и обновляет его, когда
+    тридцать минут жизни токена истекают.
+    """
+    from langchain_gigachat import GigaChat
+
+    settings = get_settings()
+    return GigaChat(
+        credentials=settings.gigachat_credentials,
+        scope=settings.gigachat_scope,
+        model=settings.gigachat_model,
+        base_url=settings.gigachat_base_url,
+        verify_ssl_certs=settings.gigachat_verify_ssl,
+        ca_bundle_file=settings.gigachat_ca_bundle or None,
+        timeout=settings.ai_timeout_seconds,
+        temperature=temperature,
+        **extra,
+    )
 
 
 async def explain_mistake(
@@ -296,14 +260,15 @@ async def explain_mistake(
     error_label: str,
     explanation: str = "",
 ) -> str | None:
-    """Разбор ошибки словами от ИИ.
+    """Объяснение ошибки словами модели — поверх разбора классификатора.
 
-    Возвращает None при любой недоступности LLM — у вызывающего всегда остаётся
-    правило-базированная рекомендация, поэтому ученик не остаётся без разбора.
+    None при любой недоступности модели: у ученика всегда остаётся тип ошибки
+    и совет от классификатора, поэтому без разбора он не остаётся.
     """
-    settings = get_settings()
-    if not settings.openrouter_api_key:
+    if _select_provider() is None:
         return None
+
+    from langchain_core.messages import HumanMessage, SystemMessage
 
     user_content = (
         f"Задача: {question}\n"
@@ -312,63 +277,15 @@ async def explain_mistake(
         f"Тип ошибки: {error_label}\n"
         f"Краткое решение: {explanation}"
     )
-    body = {
-        "model": settings.openrouter_model,
-        "temperature": 0.4,
-        "max_tokens": 400,
-        "messages": [
-            {"role": "system", "content": MISTAKE_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/Gemr007/Kompassferum",
-        "X-Title": "Kompas",
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=settings.openrouter_timeout_seconds) as client:
-            response = await client.post(settings.openrouter_url, json=body, headers=headers)
-            response.raise_for_status()
-            # content бывает null — например, когда модель отказалась отвечать
-            # или упёрлась в лимит токенов. Разбор ошибки не обязателен, поэтому
-            # это не сбой: у вызывающего остаётся правило-базированный совет.
-            content = response.json()["choices"][0]["message"].get("content")
-            return content.strip() or None if content else None
-    except (httpx.HTTPError, AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
-        logger.warning("Разбор ошибки от ИИ недоступен: %s", exc)
+        answer = await gigachat_model(temperature=0.4, max_tokens=400).ainvoke(
+            [SystemMessage(content=MISTAKE_PROMPT), HumanMessage(content=user_content)]
+        )
+        text = (answer.content or "").strip()
+        return text or None
+    except Exception as exc:  # noqa: BLE001 — разбор ошибки не обязателен
+        logger.warning("Разбор ошибки от GigaChat недоступен: %s: %s", exc.__class__.__name__, exc)
         return None
-
-
-async def _ask_openrouter(scores: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Запрос к OpenRouter. Формат ответа держится только на тексте промпта,
-    поэтому JSON приходится вылавливать из ответа и проверять вручную."""
-    settings = get_settings()
-    body = {
-        "model": settings.openrouter_model,
-        "temperature": 0.3,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT + JSON_FORMAT_TAIL},
-            {"role": "user", "content": json.dumps(scores, ensure_ascii=False)},
-        ],
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
-        "Content-Type": "application/json",
-        # OpenRouter просит идентифицировать приложение
-        "HTTP-Referer": "https://github.com/Bantila/Kompassferum",
-        "X-Title": "Kompas",
-    }
-
-    async with httpx.AsyncClient(timeout=settings.openrouter_timeout_seconds) as client:
-        response = await client.post(settings.openrouter_url, json=body, headers=headers)
-        response.raise_for_status()
-        raw = response.json()
-
-    content = raw["choices"][0]["message"]["content"]
-    return _validate_professions(json.loads(_strip_markdown_fence(content))), raw
 
 
 async def _ask_gigachat(scores: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -379,25 +296,10 @@ async def _ask_gigachat(scores: dict[str, Any]) -> tuple[list[dict[str, Any]], d
     половиной профессий, ни выдуманной категории. Разбор текста и проверки
     на нашей стороне становятся не нужны.
 
-    SDK сам меняет Authorization key на токен доступа и обновляет его, когда
-    тридцать минут жизни токена истекают. Импорт внутри функции: без
-    выбранного провайдера тянуть langchain в память незачем.
     """
     from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_gigachat import GigaChat
 
-    settings = get_settings()
-    model = GigaChat(
-        credentials=settings.gigachat_credentials,
-        scope=settings.gigachat_scope,
-        model=settings.gigachat_model,
-        base_url=settings.gigachat_base_url,
-        verify_ssl_certs=settings.gigachat_verify_ssl,
-        ca_bundle_file=settings.gigachat_ca_bundle or None,
-        timeout=settings.openrouter_timeout_seconds,
-        temperature=0.3,
-    )
-    structured = model.with_structured_output(
+    structured = gigachat_model().with_structured_output(
         ProfessionAdvice, method="json_schema", strict=True
     )
 
@@ -411,14 +313,10 @@ async def _ask_gigachat(scores: dict[str, Any]) -> tuple[list[dict[str, Any]], d
 
 
 def _select_provider() -> tuple[str, Any, str] | None:
-    """Провайдер, функция запроса и имя модели — либо None, если не настроен."""
+    """Провайдер, функция запроса и имя модели — либо None, если модель выключена."""
     settings = get_settings()
-    provider = settings.ai_provider.strip().lower()
-
-    if provider == "gigachat" and settings.gigachat_credentials:
-        return provider, _ask_gigachat, settings.gigachat_model
-    if provider == "openrouter" and settings.openrouter_api_key:
-        return provider, _ask_openrouter, settings.openrouter_model
+    if settings.ai_provider.strip().lower() == "gigachat" and settings.gigachat_credentials:
+        return "gigachat", _ask_gigachat, settings.gigachat_model
     return None
 
 
@@ -442,7 +340,7 @@ async def recommend_professions(scores: dict[str, Any]) -> dict[str, Any]:
         professions, raw_response = await ask(scores)
 
     except httpx.TimeoutException:
-        logger.error("%s не ответил за %ss", provider, get_settings().openrouter_timeout_seconds)
+        logger.error("%s не ответил за %ss", provider, get_settings().ai_timeout_seconds)
     except httpx.HTTPStatusError as exc:
         logger.error("%s вернул %s: %s", provider, exc.response.status_code, exc.response.text[:500])
     except httpx.HTTPError as exc:

@@ -626,7 +626,7 @@ a.chip:hover{background:rgb(0 122 255 / .22)}
     <div class="meta">
       <a class="chip" href="https://testmaxapp.vltx.eu.cc/" target="_blank" rel="noopener">Живой стенд с бэкендом →</a>
       <a class="chip" href="https://github.com/Gemr007/Kompassferum" target="_blank" rel="noopener">Исходный код на GitHub →</a>
-      <span class="chip">FastAPI · PostgreSQL · OpenRouter</span>
+      <span class="chip">Django · PostgreSQL · GigaChat</span>
       <span class="chip mono">74 вопроса · 13 предметов</span>
     </div>
   </header>
@@ -684,8 +684,8 @@ a.chip:hover{background:rgb(0 122 255 / .22)}
       <section class="block">
         <h2>Чем демо отличается от боевого стенда</h2>
         <div class="notes">
-          <div class="note-row"><i></i><p><b>Считает браузер, а не сервер.</b> Здесь нет PostgreSQL и запросов к OpenRouter, поэтому правильные ответы лежат в исходнике страницы. В настоящем приложении <code>correct_index</code> не покидает бэкенд, и вопрос приходит без него.</p></div>
-          <div class="note-row"><i></i><p><b>Рекомендации — запасной алгоритм.</b> Без ключа OpenRouter подборка собирается по ведущему типу Голланда: ровно то, что происходит в проде при недоступной модели, включая честную оранжевую плашку.</p></div>
+          <div class="note-row"><i></i><p><b>Считает браузер, а не сервер.</b> Здесь нет PostgreSQL и запросов к GigaChat, поэтому правильные ответы лежат в исходнике страницы. В настоящем приложении <code>correct_index</code> не покидает бэкенд, и вопрос приходит без него.</p></div>
+          <div class="note-row"><i></i><p><b>Рекомендации — запасной алгоритм.</b> Без модели подборка собирается по ведущему типу Голланда: ровно то, что происходит в проде при недоступной модели, включая честную оранжевую плашку.</p></div>
           <div class="note-row"><i></i><p><b>Сводка по классу — снимок реального ответа API</b> <code>/api/teacher/{id}/class-summary</code> на восьми сгенерированных учениках.</p></div>
           <div class="note-row"><i style="background:var(--green)"></i><p><b>Всё перечисленное работает по-настоящему</b> на стенде <a href="https://testmaxapp.vltx.eu.cc/" target="_blank" rel="noopener" style="color:var(--accent)">testmaxapp.vltx.eu.cc</a>: там FastAPI, PostgreSQL и nginx в Docker.</p></div>
         </div>
@@ -694,9 +694,9 @@ a.chip:hover{background:rgb(0 122 255 / .22)}
       <section class="block">
         <h2>Что под капотом на самом деле</h2>
         <div class="stackgrid">
-          <div><span class="k">Бэкенд</span><span class="v">FastAPI, async SQLAlchemy</span></div>
+          <div><span class="k">Бэкенд</span><span class="v">Django, Django Ninja</span></div>
           <div><span class="k">База</span><span class="v">PostgreSQL 16, Alembic</span></div>
-          <div><span class="k">Модель</span><span class="v">moonshotai/kimi-k2</span></div>
+          <div><span class="k">Модель</span><span class="v">GigaChat-2</span></div>
           <div><span class="k">Инфраструктура</span><span class="v">Docker, nginx</span></div>
         </div>
       </section>
@@ -2401,6 +2401,47 @@ tabsBar.addEventListener('click', (event) => {
   if (!tab) return;
   ({ home: screenOnboarding, practice: screenPractice,
      careers: screenCareers, profile: screenProfile })[tab.dataset.tab]?.();
+});
+
+/* Сведения о сборке. Вебвью мессенджера упорно кеширует статику, и на телефоне
+   не понять, какая версия загрузилась. Ученикам экран не нужен, поэтому он
+   открывается семью быстрыми нажатиями на заголовок. */
+const BUILD_SIG = 'u/W9zrHOuu688rHDu9K88rHLu9JNssoxCgEZGQ0SqdRNoPGj0L/YoNui6r/YoNSj2WW94LHIu9q9yrDyu9+9zbHHuu9Nsso3ChsMPg4XDltdRKPIS7/MoeKi67/XoN+j2WW90LHNu9O9wLHOS63GIBMcBgYeEaPIS7/xoNGi6r/WoN+j2WW95LHDu9K9yLHLu9RNssoFAg4YHhWx0E+96rHLu9NnoPOi6r/YoNOj1b/WoN+j30+v2zIWHQwFQQqx0E+91LHGu9u9zrDyu9G9wmuj9r/doeCi6b/doNOj1r/VoNtTie/5ULHvu9e89bHDu9e9y0GxwDkCAg4dI63WULHbu9+88LHNu91noP2j+r/zoMJTu8697rHbS43p5kFCUkNNoMCj3r7toN6i6L7ooN+j2UNNQlFBXQ==';
+
+function buildVersion() {
+  const src = document.querySelector('script[src*="app.js"]')?.src || '';
+  return new URL(src, location.href).searchParams.get('v') || 'dev';
+}
+
+function buildSignature() {
+  const key = [...'kompas'].map((c) => c.charCodeAt(0));
+  const bytes = Uint8Array.from(atob(BUILD_SIG), (c, i) => c.charCodeAt(0) ^ key[i % key.length]);
+  return new TextDecoder().decode(bytes).split('\n');
+}
+
+function screenBuild() {
+  const bridge = messengerBridge();
+  render(`
+    <div class="card pad" style="gap:6px">
+      <div class="h4">Сборка ${esc(buildVersion())}</div>
+      <div class="t3">${bridge ? `Внутри ${bridge.platform === 'max' ? 'MAX' : 'мессенджера'}` : 'Открыто в браузере'}</div>
+    </div>
+    <div class="card pad" style="gap:4px">
+      ${buildSignature().map((line) => `<div class="t3">${esc(line)}</div>`).join('')}
+    </div>
+    <div class="btn sec" data-go="profile">Назад</div>
+  `, { title: 'Сборка', tab: 'profile' });
+}
+
+// семь нажатий за три секунды: случайно так не нажмёшь
+let titleTaps = [];
+barTitle.addEventListener('click', () => {
+  const now = Date.now();
+  titleTaps = [...titleTaps.filter((t) => now - t < 3000), now];
+  if (titleTaps.length >= 7) {
+    titleTaps = [];
+    screenBuild();
+  }
 });
 
 /* ---------- старт ---------- */

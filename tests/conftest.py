@@ -20,9 +20,8 @@ _DB_FILE.unlink(missing_ok=True)
 # Переменные окружения выставляются ДО импорта app: настройки Django и
 # Settings читаются на импорте и кэшируются.
 os.environ["DATABASE_URL"] = f"sqlite:///{_DB_FILE.as_posix()}"
-os.environ["AI_PROVIDER"] = "openrouter"
-os.environ["OPENROUTER_API_KEY"] = "test-key"
-os.environ["OPENROUTER_MODEL"] = "moonshotai/kimi-k2"
+# модель выключена: тесты не ходят в сеть, GigaChat подменяется там, где он нужен
+os.environ["AI_PROVIDER"] = "none"
 os.environ["MAX_WEBHOOK_SECRET"] = "test-secret"
 
 from asgiref.sync import sync_to_async  # noqa: E402

@@ -1,18 +1,11 @@
-"""Тесты подбора профессий. Реальный OpenRouter не дёргаем — httpx замокан."""
+"""Тесты подбора профессий и сквозной путь сдачи теста. В сеть не ходим."""
 
 from __future__ import annotations
 
-import json
-
-import httpx
 import pytest
 
 from app.services import ai_recommender
-from app.services.ai_recommender import (
-    FALLBACK_MODEL_NAME,
-    build_fallback,
-    recommend_professions,
-)
+from app.services.ai_recommender import build_fallback
 
 SCORES = {
     "interests": {
@@ -48,93 +41,6 @@ LLM_PAYLOAD = {
 }
 
 
-def _mock_post(monkeypatch, *, content: str | None = None, exc: Exception | None = None,
-               status_code: int = 200) -> None:
-    """Подменяет запросы к OpenRouter — до сети дело не доходит.
-
-    Перехватываем только вызовы на openrouter.ai: тестовый ASGI-клиент ходит
-    в наше же приложение тем же httpx и должен работать по-настоящему.
-    """
-    original_post = httpx.AsyncClient.post
-
-    async def fake_post(self, url, **kwargs):  # noqa: ANN001, ANN202
-        if "openrouter.ai" not in str(url):
-            return await original_post(self, url, **kwargs)
-        if exc is not None:
-            raise exc
-        request = httpx.Request("POST", url)
-        body = {"choices": [{"message": {"content": content}}]} if content else {"error": "boom"}
-        return httpx.Response(status_code, json=body, request=request)
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-
-
-async def test_successful_llm_response(monkeypatch: pytest.MonkeyPatch) -> None:
-    _mock_post(monkeypatch, content=json.dumps(LLM_PAYLOAD, ensure_ascii=False))
-
-    result = await recommend_professions(SCORES)
-
-    assert result["fallback"] is False
-    assert result["model_used"] == "moonshotai/kimi-k2"
-    assert len(result["professions"]) == 5
-    assert result["professions"][0]["name"] == "Профессия 0"
-    assert result["professions"][0]["category"] == "технологии"
-
-
-async def test_markdown_fenced_json_is_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Модель часто оборачивает ответ в ```json — это не должно ломать разбор."""
-    fenced = "Вот результат:\n```json\n" + json.dumps(LLM_PAYLOAD, ensure_ascii=False) + "\n```"
-    _mock_post(monkeypatch, content=fenced)
-
-    result = await recommend_professions(SCORES)
-
-    assert result["fallback"] is False
-    assert len(result["professions"]) == 5
-
-
-@pytest.mark.parametrize(
-    ("kwargs", "case"),
-    [
-        ({"exc": httpx.TimeoutException("too slow")}, "таймаут"),
-        ({"exc": httpx.ConnectError("no route")}, "сеть недоступна"),
-        ({"status_code": 500, "content": None}, "500 от OpenRouter"),
-        ({"content": "я не умею в JSON"}, "не-JSON в ответе"),
-        ({"content": '{"professions": []}'}, "пустой список профессий"),
-        ({"content": '{"professions": [{"reasoning": "без имени"}]}'}, "профессия без name"),
-    ],
-)
-async def test_any_llm_failure_falls_back(
-    monkeypatch: pytest.MonkeyPatch, kwargs: dict, case: str
-) -> None:
-    _mock_post(monkeypatch, **kwargs)
-
-    result = await recommend_professions(SCORES)
-
-    assert result["fallback"] is True, case
-    assert result["model_used"] == FALLBACK_MODEL_NAME
-    assert len(result["professions"]) == 5
-
-
-async def test_missing_api_key_falls_back_without_network(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(ai_recommender.get_settings(), "openrouter_api_key", "")
-
-    original_post = httpx.AsyncClient.post
-
-    async def explode(self, url, **kwargs):  # noqa: ANN001, ANN202
-        if "openrouter.ai" in str(url):
-            raise AssertionError("без ключа сетевого запроса быть не должно")
-        return await original_post(self, url, **kwargs)
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", explode)
-
-    result = await recommend_professions(SCORES)
-
-    assert result["fallback"] is True
-    assert result["model_used"] == FALLBACK_MODEL_NAME
-
-
 def test_fallback_follows_top_holland_type() -> None:
     result = build_fallback(SCORES)
     assert result["top_interest"] == "investigative"
@@ -165,7 +71,14 @@ async def test_submit_stores_and_returns_recommendations(
 ) -> None:
     """Сквозной путь: приём ответов → сохранение → выдача по id и в истории."""
     await согласившийся("max_42")
-    _mock_post(monkeypatch, content=json.dumps(LLM_PAYLOAD, ensure_ascii=False))
+    settings = ai_recommender.get_settings()
+    monkeypatch.setattr(settings, "ai_provider", "gigachat")
+    monkeypatch.setattr(settings, "gigachat_credentials", "test-key")
+
+    async def fake_gigachat(scores):  # noqa: ANN001, ANN202
+        return LLM_PAYLOAD["professions"], LLM_PAYLOAD
+
+    monkeypatch.setattr(ai_recommender, "_ask_gigachat", fake_gigachat)
 
     response = await client.post(
         "/api/tests/submit",

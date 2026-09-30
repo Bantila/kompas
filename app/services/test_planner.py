@@ -133,20 +133,10 @@ def fallback_plan(interests: dict[str, float]) -> list[str]:
 async def _ask_gigachat(interests: dict[str, float]) -> list[str]:
     """Выбор предметов моделью. Схема не даёт назвать несуществующий предмет."""
     from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_gigachat import GigaChat
 
-    settings = get_settings()
-    model = GigaChat(
-        credentials=settings.gigachat_credentials,
-        scope=settings.gigachat_scope,
-        model=settings.gigachat_model,
-        base_url=settings.gigachat_base_url,
-        verify_ssl_certs=settings.gigachat_verify_ssl,
-        ca_bundle_file=settings.gigachat_ca_bundle or None,
-        timeout=settings.openrouter_timeout_seconds,
-        temperature=0.3,
-    )
-    structured = model.with_structured_output(SubjectPlan, method="json_schema", strict=True)
+    from app.services.ai_recommender import gigachat_model
+
+    structured = gigachat_model().with_structured_output(SubjectPlan, method="json_schema", strict=True)
 
     plan: SubjectPlan = await structured.ainvoke(
         [

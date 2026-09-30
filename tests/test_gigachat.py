@@ -1,8 +1,7 @@
 """Подбор профессий через GigaChat со строгой схемой ответа.
 
-Сеть не трогаем: клиент подменяется целиком. Главное отличие от OpenRouter —
-формат держится не на тексте промпта, а на JSON-схеме, которую проверяет сам
-API. Поэтому здесь проверяется не разбор текста, а что схема требует ровно
+Сеть не трогаем: клиент подменяется целиком. Формат держится не на тексте
+промпта, а на JSON-схеме, которую проверяет сам API. Поэтому здесь проверяется не разбор текста, а что схема требует ровно
 пять профессий с категорией из перечня, и что любой отказ Сбера по-прежнему
 приводит к rule-based подбору, а не к исключению.
 """
@@ -134,7 +133,6 @@ async def test_prompt_has_no_json_instructions(
     системное, пользовательское = записано["structured"].calls[0]
     # слово JSON в описании входных данных допустимо, а вот требований
     # к формату ответа быть не должно — за них отвечает схема
-    assert ai_recommender.JSON_FORMAT_TAIL not in системное.content
     assert "```" not in системное.content
     assert "СТРОГО валидным" not in системное.content
     # профиль уходит в модель целиком, иначе обосновать баллами нечем
@@ -179,11 +177,10 @@ async def test_provider_without_credentials_falls_back(monkeypatch: pytest.Monke
 
 
 def test_provider_choice_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ключ от одного провайдера не должен включать другого."""
+    """Ключ сам по себе модель не включает — только AI_PROVIDER=gigachat."""
     settings = get_settings()
     monkeypatch.setattr(settings, "ai_provider", "none")
     monkeypatch.setattr(settings, "gigachat_credentials", "key")
-    monkeypatch.setattr(settings, "openrouter_api_key", "key")
 
     assert ai_recommender._select_provider() is None
 
@@ -206,3 +203,61 @@ def test_schema_rejects_unknown_category() -> None:
             subjects_to_improve=["физика"],
             category="приключения",
         )
+
+
+class FakeAnswer:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+def fake_chat(monkeypatch: pytest.MonkeyPatch, *, content: str = "", error: Exception | None = None) -> dict:
+    """GigaChat без схемы — для свободного текста, как в разборе ошибок."""
+    записано: dict = {}
+
+    class FakeModel:
+        def __init__(self, **kwargs):
+            записано["client"] = kwargs
+
+        async def ainvoke(self, messages):  # noqa: ANN001, ANN202
+            записано["messages"] = messages
+            if error is not None:
+                raise error
+            return FakeAnswer(content)
+
+    import langchain_gigachat
+
+    monkeypatch.setattr(langchain_gigachat, "GigaChat", FakeModel)
+    return записано
+
+
+РАЗБОР = dict(
+    question="2 + 2 * 2", correct_answer="6", user_answer="8",
+    error_label="Вычислительная ошибка", explanation="Сначала умножение.",
+)
+
+
+async def test_mistake_is_explained_by_gigachat(
+    monkeypatch: pytest.MonkeyPatch, gigachat_selected
+) -> None:
+    записано = fake_chat(monkeypatch, content="  Ты сложил раньше, чем умножил.  ")
+
+    текст = await ai_recommender.explain_mistake(**РАЗБОР)
+
+    assert текст == "Ты сложил раньше, чем умножил."
+    assert записано["client"]["max_tokens"] == 400
+    assert "Ответ ученика: 8" in записано["messages"][1].content
+
+
+@pytest.mark.parametrize("кейс", ["сбой", "пусто", "модель выключена"])
+async def test_mistake_explanation_never_breaks(
+    monkeypatch: pytest.MonkeyPatch, gigachat_selected, кейс: str
+) -> None:
+    """Разбор ошибки — бонус: при любой беде None, а не исключение."""
+    if кейс == "сбой":
+        fake_chat(monkeypatch, error=TimeoutError("too slow"))
+    elif кейс == "пусто":
+        fake_chat(monkeypatch, content="   ")
+    else:
+        monkeypatch.setattr(get_settings(), "ai_provider", "none")
+
+    assert await ai_recommender.explain_mistake(**РАЗБОР) is None

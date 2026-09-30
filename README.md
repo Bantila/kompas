@@ -483,12 +483,11 @@ docker compose exec backend python -m app.seed
 | `DATABASE_URL` | Строка подключения backend → postgres |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Учётка контейнера БД, должна совпадать с `DATABASE_URL` |
 | `JWT_SECRET` | Подпись токенов. Пустой → генерируется случайный при старте, и все сессии отваливаются при перезапуске |
-| `AI_PROVIDER` | Кто подбирает профессии: `gigachat`, `openrouter` или `none`. Ключ одного провайдера не включает другого |
+| `AI_PROVIDER` | `gigachat` — профессии, план теста и разбор ошибок подбирает GigaChat; `none` — только запасной алгоритм |
 | `GIGACHAT_CREDENTIALS` | Authorization key из личного кабинета developers.sber.ru. Пустой → всегда rule-based рекомендации |
 | `GIGACHAT_SCOPE` | `GIGACHAT_API_PERS` для физлиц, `_B2B` и `_CORP` для компаний |
 | `GIGACHAT_MODEL` | `GigaChat`, `GigaChat-2-Pro` или `GigaChat-2-Max` |
 | `GIGACHAT_CA_BUNDLE` / `GIGACHAT_VERIFY_SSL` | Сбер подписан НУЦ Минцифры, которого нет в стандартном наборе сертификатов. Путь к сертификату — или, для пробы, отключение проверки TLS |
-| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | Запасной провайдер, slug по умолчанию `moonshotai/kimi-k2` |
 | `MAX_BOT_TOKEN` | Токен бота MAX — целевой платформы. Пустой → адаптер выключен |
 | `MAX_BOT_USERNAME` | Имя бота без `@` — нужно для диплинка `max.ru/<имя>` и кнопки `open_app` |
 | `MAX_WEBHOOK_SECRET` | Секрет подписки MAX: приходит обратно в заголовке `X-Max-Bot-Api-Secret`. Только буквы, цифры и дефис, 5–256 символов — `openssl rand -hex 32` |
@@ -639,8 +638,7 @@ teamwork, leadership, creativity, analytical, resilience.
 `services/ai_recommender.py` зовёт GigaChat через GigaChain с `temperature=0.3`.
 Формат ответа держится на JSON-схеме (`with_structured_output(method="json_schema",
 strict=True)`): API сам не пропустит ответ, где профессий не пять или категория
-выдумана. У запасного провайдера OpenRouter такой возможности нет — ему формат
-описывается словами, и ответ разбирается вручную.
+выдумана. Разбирать текст ответа и чинить JSON на нашей стороне не нужно.
 
 Любой сбой — таймаут, не-200, невалидный JSON, отсутствие ключа — не приводит к 500-й
 ошибке. Вместо этого включается rule-based подбор по самому выраженному типу Голланда,

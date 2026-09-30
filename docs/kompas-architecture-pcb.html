@@ -186,7 +186,7 @@
       <div class="sub">Схема системы · MAX Mini App · Хакатон «Идея фикс»</div>
     </div>
     <div class="board-id">
-      REV 03 — KIMI K3 INTEGRATED<br>
+      REV 04 — GIGACHAT-2 INTEGRATED<br>
       LAYER STACK: 4<br>
       DESIGNED FOR: MAX / СФЕРУМ
     </div>
@@ -241,7 +241,7 @@
         </div>
       </div>
 
-      <!-- U3 — Backend с Kimi K3 внутри -->
+      <!-- U3 — Backend с GigaChat-2 внутри -->
       <div class="chip" style="border-color:var(--copper-bright);">
         <div class="pins-top"><div class="pin"></div><div class="pin"></div><div class="pin"></div><div class="pin"></div></div>
         <div class="pins-bottom"><div class="pin"></div><div class="pin"></div><div class="pin"></div><div class="pin"></div></div>
@@ -259,7 +259,7 @@
         <div class="chip-block">
           <div class="lbl">AI-модуль (встроен в узел)</div>
           <ul>
-            <li class="highlight-li">OpenRouter API — Kimi K3</li>
+            <li class="highlight-li">GigaChat API — GigaChat-2</li>
             <li>Генерация топ-5 профессий</li>
             <li>Fallback: rule-based алгоритм</li>
           </ul>
@@ -301,7 +301,7 @@
       <div class="sig-line"></div>
       <div class="sig-step"><div class="dot"></div><div class="n">05</div><p>Подсчёт баллов, запись в U4</p></div>
       <div class="sig-line"></div>
-      <div class="sig-step"><div class="dot"></div><div class="n">06</div><p>AI-модуль U3 → Kimi K3 запрос</p></div>
+      <div class="sig-step"><div class="dot"></div><div class="n">06</div><p>AI-модуль U3 → запрос к GigaChat-2</p></div>
       <div class="sig-line"></div>
       <div class="sig-step"><div class="dot"></div><div class="n">07</div><p>Рекомендация записана в U4</p></div>
       <div class="sig-line"></div>
@@ -316,7 +316,7 @@
       <tr><th>Поз.</th><th>Наименование</th><th>Назначение</th></tr>
       <tr><td class="ref">U1</td><td>MAX Client</td><td>WebView-контейнер, точка входа пользователя</td></tr>
       <tr><td class="ref">U2</td><td>Frontend (React)</td><td>Интерфейс, с которым работает ученик и педагог</td></tr>
-      <tr><td class="ref">U3</td><td>Backend (FastAPI) + AI-модуль Kimi K3</td><td>Бизнес-логика, авторизация, генерация рекомендаций</td></tr>
+      <tr><td class="ref">U3</td><td>Backend (FastAPI) + AI-модуль GigaChat-2</td><td>Бизнес-логика, авторизация, генерация рекомендаций</td></tr>
       <tr><td class="ref">U4</td><td>PostgreSQL 16</td><td>Персистентное хранилище данных</td></tr>
       <tr><td class="ref">—</td><td>nginx</td><td>Reverse proxy, единая точка входа по HTTPS</td></tr>
     </table>

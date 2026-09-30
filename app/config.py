@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     )
 
     # Какой провайдер отвечает за подбор профессий:
-    # gigachat | openrouter | none (всегда rule-based)
+    # gigachat | none (всегда rule-based)
     ai_provider: str = "none"
 
     # GigaChat — российская модель, основной вариант для защиты проекта.
@@ -40,11 +40,9 @@ class Settings(BaseSettings):
     # Задан — проверка TLS работает штатно и отключать её не нужно.
     gigachat_ca_bundle: str = ""
 
-    # OpenRouter
-    openrouter_api_key: str = ""
-    openrouter_model: str = "moonshotai/kimi-k2"
-    openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"
-    openrouter_timeout_seconds: float = 30.0
+    # Сколько ждать ответа модели, прежде чем уйти в запасной алгоритм.
+    # Caddy ждёт 35 с — прокси не должен обрывать запрос раньше нас.
+    ai_timeout_seconds: float = 30.0
 
     # MAX — целевая платформа
     max_webhook_secret: str = ""

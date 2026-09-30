@@ -19,10 +19,9 @@ _settings = get_settings()
 # Печатаем модель того провайдера, который выбран: иначе по логу не понять,
 # применились ли настройки.
 _провайдер = _settings.ai_provider.strip().lower()
-_модель = {
-    "gigachat": _settings.gigachat_model,
-    "openrouter": _settings.openrouter_model,
-}.get(_провайдер, "запасной алгоритм без модели")
+_модель = (
+    _settings.gigachat_model if _провайдер == "gigachat" else "запасной алгоритм без модели"
+)
 logger.info("«Компас» запускается, подбор профессий: %s (%s)", _провайдер, _модель)
 if not os.getenv("JWT_SECRET"):
     logger.warning(
