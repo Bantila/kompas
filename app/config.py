@@ -3,14 +3,19 @@
 import secrets
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://kompas:kompas@postgres:5432/kompas"
+    # LAYERO_DATABASE_URL выдаёт Layero, когда к проекту подключена база;
+    # DATABASE_URL — docker-compose и локальный запуск
+    database_url: str = Field(
+        default="postgresql+asyncpg://kompas:kompas@postgres:5432/kompas",
+        validation_alias=AliasChoices("LAYERO_DATABASE_URL", "DATABASE_URL"),
+    )
 
     # Какой провайдер отвечает за подбор профессий:
     # gigachat | openrouter | none (всегда rule-based)

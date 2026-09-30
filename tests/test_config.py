@@ -37,3 +37,24 @@ def test_cors_wildcard_is_not_split_as_a_pattern(settings, monkeypatch: pytest.M
     monkeypatch.setattr(settings, "cors_allowed_origins", " * ")
 
     assert settings.cors_origins == ["*"]
+
+
+def test_layero_database_url_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Layero кладёт адрес базы в LAYERO_DATABASE_URL — он главнее DATABASE_URL."""
+    from app.config import Settings
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///local.db")
+    monkeypatch.setenv("LAYERO_DATABASE_URL", "postgresql://r:p@db.layero.ru:5432/k?sslmode=verify-full")
+
+    assert Settings().database_url.startswith("postgresql://r:p@db.layero.ru")
+
+
+def test_verify_full_gets_root_certificate() -> None:
+    """Без корневого сертификата verify-full падает на подключении."""
+    from app.settings import _database
+
+    база = _database("postgresql://r:p%40ss@db.layero.ru:5432/kompas?sslmode=verify-full")
+
+    assert база["PASSWORD"] == "p@ss"
+    assert база["OPTIONS"]["sslmode"] == "verify-full"
+    assert база["OPTIONS"]["sslrootcert"].endswith(".pem")

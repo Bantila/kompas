@@ -1,7 +1,9 @@
 """Настройки Django. Всё прикладное по-прежнему читается из app.config (.env)."""
 
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
+
+import certifi
 
 from app.config import get_settings
 
@@ -76,6 +78,12 @@ def _database(url: str) -> dict:
     scheme = parsed.scheme.split("+", 1)[0]
     if scheme == "sqlite":
         return {"ENGINE": "django.db.backends.sqlite3", "NAME": unquote(parsed.path.lstrip("/")) or ":memory:"}
+    # Параметры из строки (sslmode и прочие) уходят в libpq как есть. Layero
+    # требует sslmode=verify-full, а для проверки нужен корневой сертификат —
+    # берём набор certifi, он уже в зависимостях: в образе ~/.postgresql/root.crt нет.
+    options = dict(parse_qsl(parsed.query))
+    if options.get("sslmode") in ("verify-ca", "verify-full"):
+        options.setdefault("sslrootcert", certifi.where())
     return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": parsed.path.lstrip("/"),
@@ -83,6 +91,7 @@ def _database(url: str) -> dict:
         "PASSWORD": unquote(parsed.password or ""),
         "HOST": parsed.hostname or "",
         "PORT": str(parsed.port or ""),
+        "OPTIONS": options,
     }
 
 

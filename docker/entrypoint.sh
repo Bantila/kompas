@@ -23,4 +23,17 @@ PY
 echo "Накатываем миграции…"
 python manage.py migrate --noinput
 
+# Хостинги без консоли (Layero): администратор и демо-класс заводятся при
+# старте по переменным окружения. Обе команды безопасно повторять.
+if [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
+    python manage.py createsuperuser --noinput >/dev/null 2>&1 \
+        && echo "Администратор $DJANGO_SUPERUSER_USERNAME создан" \
+        || echo "Администратор уже есть"
+fi
+if [ "$SEED_DEMO" = "1" ]; then
+    # демо-рекомендации — запасным алгоритмом: восемь запросов к модели на
+    # старте не уложились бы в проверку запуска контейнера
+    AI_PROVIDER=none python -m app.seed
+fi
+
 exec "$@"

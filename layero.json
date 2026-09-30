@@ -1,0 +1,4 @@
+{
+  "runtime": "python_web",
+  "startCommand": "sh docker/entrypoint.sh uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+}
