@@ -16,7 +16,7 @@ from app.services import rate_limit
 
 
 async def _вход(client, ip: str = "10.0.0.1"):
-    return await client.post("/api/auth/login", json=ВХОД, headers={"X-Real-IP": ip})
+    return await client.post("/api/auth/login", json=ВХОД, headers={"X-Forwarded-For": ip})
 
 
 async def test_password_guessing_is_cut_off(client) -> None:
@@ -48,23 +48,24 @@ async def test_limit_is_per_address(client) -> None:
     assert сосед.status_code == 401, "чужой адрес не должен страдать от соседа"
 
 
-async def test_forwarded_for_cannot_buy_extra_attempts(client) -> None:
-    """X-Forwarded-For клиент дописывает сам — подмена не должна сбрасывать счёт.
+async def test_forged_forwarded_for_cannot_buy_extra_attempts(client) -> None:
+    """Левую часть X-Forwarded-For клиент пишет сам — подмена не сбрасывает счёт.
 
-    Если бы ключ брался оттуда, перебор пароля обходился бы новым значением
-    заголовка на каждый запрос, и лимит не значил бы ничего.
+    Прокси (Layero, Caddy) дописывает настоящий адрес последним. Если бы ключ
+    брался из начала цепочки или из X-Real-IP, который Layero пропускает как
+    есть, перебор пароля обходился бы новым значением на каждый запрос.
     """
     for i in range(10):
         await client.post(
             "/api/auth/login",
             json=ВХОД,
-            headers={"X-Real-IP": "10.0.0.7", "X-Forwarded-For": f"1.2.3.{i}"},
+            headers={"X-Real-IP": f"5.5.5.{i}", "X-Forwarded-For": f"1.2.3.{i}, 10.0.0.7"},
         )
 
     ответ = await client.post(
         "/api/auth/login",
         json=ВХОД,
-        headers={"X-Real-IP": "10.0.0.7", "X-Forwarded-For": "9.9.9.9"},
+        headers={"X-Real-IP": "9.9.9.9", "X-Forwarded-For": "9.9.9.9, 10.0.0.7"},
     )
 
     assert ответ.status_code == 429
@@ -81,7 +82,7 @@ async def test_whole_classroom_can_enter_at_once(client) -> None:
         ответ = await client.post(
             "/api/auth/miniapp",
             json={"init_data": "мусор", "platform": "telegram"},
-            headers={"X-Real-IP": "192.168.1.1"},
+            headers={"X-Forwarded-For": "192.168.1.1"},
         )
         коды.add(ответ.status_code)
 
@@ -121,7 +122,7 @@ async def test_submit_survives_a_class_but_not_a_script(client, full_answers) ->
     коды = []
     for i in range(45):
         тело["max_user_id"] = f"flood_{i}"
-        ответ = await client.post("/api/tests/submit", json=тело, headers={"X-Real-IP": "203.0.113.5"})
+        ответ = await client.post("/api/tests/submit", json=тело, headers={"X-Forwarded-For": "203.0.113.5"})
         коды.append(ответ.status_code)
 
     assert 429 not in коды[:30], "класс должен сдать тест без препятствий"

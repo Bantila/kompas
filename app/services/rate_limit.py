@@ -40,15 +40,15 @@ class RateLimited(Exception):
 def _клиент(request: HttpRequest) -> str:
     """Кто стучится.
 
-    Берём X-Real-IP: Caddy перезаписывает его адресом соединения
-    (`header_up X-Real-IP {remote_host}`). Backend не публикует порт в Compose,
-    поэтому внешний клиент не может обойти прокси и подставить свой адрес.
-    При прямом запуске backend это правило доверия нужно обеспечить отдельно.
+    Берём последний адрес из X-Forwarded-For: его дописывает сам прокси —
+    Layero и Caddy в Compose, — и клиент подделать его не может. Всё, что
+    левее, клиент прислал сам. X-Real-IP не годится: Layero пропускает
+    присланный клиентом как есть, и лимит обходился бы новым значением.
+    Без прокси (локальный запуск) — адрес соединения.
     """
-    реальный = request.headers.get("x-real-ip")
-    if реальный:
-        return реальный.strip()
-    return request.META.get("REMOTE_ADDR") or "unknown"
+    цепочка = request.headers.get("x-forwarded-for", "")
+    последний = цепочка.rsplit(",", 1)[-1].strip()
+    return последний or request.META.get("REMOTE_ADDR") or "unknown"
 
 
 def _убрать_протухшее(сейчас: float) -> None:

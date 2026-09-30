@@ -1,7 +1,7 @@
 # Единственная точка входа снаружи. Статику и API обслуживает FastAPI.
 (backend) {
 	reverse_proxy backend:8000 {
-		# rate_limit.py доверяет этому заголовку: всегда перезаписываем его.
+		# X-Forwarded-For Caddy выставляет сам: rate_limit.py берёт из него последний адрес.
 		header_up X-Real-IP {remote_host}
 		# Host сохраняется, X-Forwarded-* Caddy выставляет сам.
 		transport http {
