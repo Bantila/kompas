@@ -1,13 +1,9 @@
 import uuid
-from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.database import Base
+from django.db import models
 
 
-class UserStats(Base):
+class UserStats(models.Model):
     """XP, серия дней и рекорд серии.
 
     Количество решённых задач намеренно не дублируем — оно считается из
@@ -15,29 +11,33 @@ class UserStats(Base):
     Здесь только то, что из истории попыток не восстановить.
     """
 
-    __tablename__ = "user_stats"
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    user = models.OneToOneField(
+        "app.User", verbose_name="ученик", on_delete=models.CASCADE, primary_key=True, related_name="+"
     )
-    xp: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    streak_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    best_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    last_activity_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+    xp = models.IntegerField(verbose_name="опыт", default=0)
+    streak_days = models.IntegerField(verbose_name="серия дней", default=0)
+    best_streak = models.IntegerField(verbose_name="рекорд серии", default=0)
+    last_activity_date = models.DateField(verbose_name="последняя активность", null=True, blank=True)
+    updated_at = models.DateTimeField(verbose_name="обновлено", auto_now=True)
+
+    class Meta:
+        db_table = "user_stats"
+        verbose_name = "статистика ученика"
+        verbose_name_plural = "статистика учеников"
 
 
-class UserAchievement(Base):
+class UserAchievement(models.Model):
     """Полученное достижение. Код — ключ из ACHIEVEMENTS."""
 
-    __tablename__ = "user_achievements"
-    __table_args__ = (UniqueConstraint("user_id", "code", name="uq_user_achievement"),)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("app.User", verbose_name="ученик", on_delete=models.CASCADE, related_name="+")
+    code = models.CharField(verbose_name="достижение", max_length=32)
+    earned_at = models.DateTimeField(verbose_name="получено", auto_now_add=True)
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
-    code: Mapped[str] = mapped_column(String(32))
-    earned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    class Meta:
+        db_table = "user_achievements"
+        verbose_name = "достижение"
+        verbose_name_plural = "достижения"
+        constraints = [
+            models.UniqueConstraint(fields=["user", "code"], name="uq_user_achievement"),
+        ]

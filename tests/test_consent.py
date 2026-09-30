@@ -15,10 +15,7 @@ import json
 import time
 from urllib.parse import urlencode
 
-from sqlalchemy import func, select
-
 from app.config import get_settings
-from app.database import SessionLocal
 from app.models import Consent, Recommendation, TestResult, User
 from app.services import consent as service
 
@@ -57,13 +54,7 @@ async def _сдать(client, max_user_id: str, answers: dict):
 
 
 async def _результатов(max_user_id: str) -> int:
-    async with SessionLocal() as session:
-        user = await session.scalar(select(User).where(User.max_user_id == max_user_id))
-        if user is None:
-            return 0
-        return await session.scalar(
-            select(func.count()).select_from(TestResult).where(TestResult.user_id == user.id)
-        )
+    return await TestResult.objects.filter(user__max_user_id=max_user_id).acount()
 
 
 async def test_submit_without_consent_is_refused(client, full_answers) -> None:
@@ -123,9 +114,7 @@ async def test_revocation_removes_recommendations_too(client, monkeypatch, full_
 
     await client.delete("/api/consent", headers=заголовки)
 
-    async with SessionLocal() as session:
-        осталось = await session.scalar(select(func.count()).select_from(Recommendation))
-    assert осталось == 0
+    assert await Recommendation.objects.acount() == 0
 
 
 async def test_test_is_closed_after_revocation(client, monkeypatch, full_answers) -> None:
@@ -157,8 +146,7 @@ async def test_revocation_is_recorded_even_without_prior_consent(client, monkeyp
 
     await client.delete("/api/consent", headers=заголовки)
 
-    async with SessionLocal() as session:
-        строка = await session.scalar(select(Consent))
+    строка = await Consent.objects.afirst()
     assert строка is not None and строка.revoked_at is not None
 
 
@@ -167,10 +155,7 @@ async def test_outdated_version_is_visible(client, monkeypatch) -> None:
     заголовки = await войти(client, monkeypatch, user_id=908)
     await client.post("/api/consent", json={}, headers=заголовки)
 
-    async with SessionLocal() as session:
-        строка = await session.scalar(select(Consent))
-        строка.document_version = "2020-01-01"
-        await session.commit()
+    await Consent.objects.aupdate(document_version="2020-01-01")
 
     состояние = await client.get("/api/consent", headers=заголовки)
 

@@ -21,7 +21,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Скрипт лежит в scripts, а работать нужно из корня проекта: там .venv,
-# .env и alembic.ini. Корень ищем по requirements.txt, чтобы скрипт остался
+# .env и manage.py. Корень ищем по requirements.txt, чтобы скрипт остался
 # рабочим и если его положат обратно в корень.
 $root = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path (Join-Path $root 'requirements.txt'))) { $root = $PSScriptRoot }
@@ -99,12 +99,12 @@ if ($busy) {
 }
 
 # 5. Миграции ----------------------------------------------------------------
-# Alembic и uvicorn пишут журнал в поток ошибок, а при 'Stop' PowerShell 5.1
+# Django и uvicorn пишут журнал в поток ошибок, а при 'Stop' PowerShell 5.1
 # считает это сбоем команды. Поэтому вокруг внешних программ режим мягкий.
 $ErrorActionPreference = 'Continue'
 
 Write-Step "Проверяю схему базы..."
-& $python -m alembic upgrade head
+& $python manage.py migrate --noinput
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "Миграции не прошли - смотрите текст ошибки выше."
     Write-Step "Частая причина: в .env неверный пароль базы или не создана база kompas."

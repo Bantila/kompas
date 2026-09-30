@@ -1,29 +1,20 @@
 import uuid
-from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.database import Base
+from django.db import models
 
 
-class SchoolClass(Base):
-    __tablename__ = "school_classes"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(32))
-    teacher_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+class SchoolClass(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(verbose_name="название", max_length=32)
+    teacher = models.ForeignKey("app.User", verbose_name="педагог", on_delete=models.CASCADE, related_name="taught_classes")
     # код из 6 символов без похожих друг на друга букв/цифр — ученики вводят вручную
-    join_code: Mapped[str] = mapped_column(String(8), unique=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    join_code = models.CharField(verbose_name="код для учеников", max_length=8, unique=True)
+    created_at = models.DateTimeField(verbose_name="создан", auto_now_add=True)
 
-    teacher: Mapped["User"] = relationship(  # noqa: F821
-        back_populates="taught_classes", foreign_keys=[teacher_id]
-    )
-    students: Mapped[list["User"]] = relationship(  # noqa: F821
-        back_populates="class_ref", foreign_keys="User.class_id"
-    )
+    class Meta:
+        db_table = "school_classes"
+        verbose_name = "класс"
+        verbose_name_plural = "классы"
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.join_code})"

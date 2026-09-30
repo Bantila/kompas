@@ -11,28 +11,22 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
-
-from app.database import SessionLocal
 from app.models import SchoolClass, User, UserRole
 from app.services import consent
 from app.services.security import create_access_token, hash_password
 
 
 async def _заголовок(max_user_id: str) -> dict:
-    async with SessionLocal() as session:
-        user = await session.scalar(select(User).where(User.max_user_id == max_user_id))
-        return {"Authorization": f"Bearer {create_access_token(user.id)}"}
+    user = await User.objects.aget(max_user_id=max_user_id)
+    return {"Authorization": f"Bearer {create_access_token(user.id)}"}
 
 
 async def _ученик(client, max_user_id: str, full_answers: dict) -> dict:
     # без записанного согласия /submit отвечает 403 — это данные ребёнка
-    async with SessionLocal() as session:
-        user = User(max_user_id=max_user_id, role=UserRole.student, full_name="Ученик")
-        session.add(user)
-        await session.flush()
-        await consent.grant(session, user.id)
-        await session.commit()
+    user = await User.objects.acreate(
+        max_user_id=max_user_id, role=UserRole.student, full_name="Ученик"
+    )
+    await consent.grant(user.id)
 
     ответ = await client.post(
         "/api/tests/submit", json={"max_user_id": max_user_id, "answers": full_answers}
@@ -43,23 +37,18 @@ async def _ученик(client, max_user_id: str, full_answers: dict) -> dict:
 
 async def _педагог(почта: str) -> tuple[dict, str]:
     """Педагог с собственным классом. Возвращает заголовок и id класса."""
-    async with SessionLocal() as session:
-        teacher = User(
-            max_user_id=f"web_{почта}",
-            email=почта,
-            hashed_password=hash_password("very-secret"),
-            full_name=почта,
-            role=UserRole.teacher,
-            is_active=True,
-        )
-        session.add(teacher)
-        await session.flush()
-        класс = SchoolClass(
-            name="7Б", teacher_id=teacher.id, join_code=почта[:6].upper().ljust(6, "X")
-        )
-        session.add(класс)
-        await session.commit()
-        return {"Authorization": f"Bearer {create_access_token(teacher.id)}"}, str(класс.id)
+    teacher = await User.objects.acreate(
+        max_user_id=f"web_{почта}",
+        email=почта,
+        hashed_password=hash_password("very-secret"),
+        full_name=почта,
+        role=UserRole.teacher,
+        is_active=True,
+    )
+    класс = await SchoolClass.objects.acreate(
+        name="7Б", teacher=teacher, join_code=почта[:6].upper().ljust(6, "X")
+    )
+    return {"Authorization": f"Bearer {create_access_token(teacher.id)}"}, str(класс.id)
 
 
 # --- свои ли это данные ------------------------------------------------------

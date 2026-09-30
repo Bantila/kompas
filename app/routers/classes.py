@@ -11,11 +11,11 @@ import secrets
 import string
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from django.db.models import Count, Q
+from django.http import HttpRequest
+from ninja import Router
+from ninja.errors import HttpError
 
-from app.database import get_session
 from app.models import (
     ClassAssignment,
     SchoolClass,
@@ -25,7 +25,7 @@ from app.models import (
     UserRole,
     UserStats,
 )
-from app.routers.auth import get_current_user
+from app.routers.auth import jwt_auth
 from app.schemas.school_class import (
     AssignmentOut,
     ClassOut,
@@ -41,7 +41,7 @@ from app.services.integrity import summary_line as integrity_note
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["classes"])
+router = Router(tags=["classes"], auth=jwt_auth)
 
 # без похожих друг на друга символов (0/O, 1/I/L) — код часто диктуют вслух в классе
 JOIN_CODE_ALPHABET = "".join(c for c in string.ascii_uppercase + string.digits if c not in "01OIL")
@@ -50,12 +50,12 @@ JOIN_CODE_LENGTH = 6
 
 def _require_teacher(user: User) -> User:
     if user.role != UserRole.teacher:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Доступно только педагогу")
+        raise HttpError(403, "Доступно только педагогу")
     return user
 
 
-async def _students_count(session: AsyncSession, class_id) -> int:
-    return await session.scalar(select(func.count(User.id)).where(User.class_id == class_id)) or 0
+async def _students_count(class_id) -> int:
+    return await User.objects.filter(class_ref_id=class_id).acount()
 
 
 def _class_out(school_class: SchoolClass, students_count: int) -> ClassOut:
@@ -68,171 +68,129 @@ def _class_out(school_class: SchoolClass, students_count: int) -> ClassOut:
     )
 
 
-async def _generate_unique_join_code(session: AsyncSession) -> str:
+async def _generate_unique_join_code() -> str:
     for _ in range(20):
         code = "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(JOIN_CODE_LENGTH))
-        if await session.scalar(select(SchoolClass).where(SchoolClass.join_code == code)) is None:
+        if not await SchoolClass.objects.filter(join_code=code).aexists():
             return code
     raise RuntimeError("Не удалось сгенерировать уникальный код класса")
 
 
-@router.post("/api/teacher/classes", response_model=ClassOut)
-async def create_class(
-    payload: CreateClassRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> ClassOut:
+@router.post("/teacher/classes", response=ClassOut)
+async def create_class(request: HttpRequest, payload: CreateClassRequest) -> ClassOut:
     """Создать класс и получить код для учеников.
 
     Идемпотентно по имени: повторное создание класса с тем же названием
     возвращает существующий, а не плодит дубликаты (двойной клик по кнопке).
     """
-    teacher = _require_teacher(user)
+    teacher = _require_teacher(request.auth)
     name = payload.name.strip()
 
-    existing = await session.scalar(
-        select(SchoolClass).where(
-            SchoolClass.teacher_id == teacher.id, func.lower(SchoolClass.name) == name.lower()
-        )
-    )
+    existing = await SchoolClass.objects.filter(teacher=teacher, name__iexact=name).afirst()
     if existing is not None:
-        return _class_out(existing, await _students_count(session, existing.id))
+        return _class_out(existing, await _students_count(existing.id))
 
-    school_class = SchoolClass(
-        name=name, teacher_id=teacher.id, join_code=await _generate_unique_join_code(session)
+    school_class = await SchoolClass.objects.acreate(
+        name=name, teacher=teacher, join_code=await _generate_unique_join_code()
     )
-    session.add(school_class)
-    await session.commit()
-    await session.refresh(school_class)
     return _class_out(school_class, 0)
 
 
-@router.get("/api/teacher/classes", response_model=list[ClassOut])
-async def list_classes(
-    user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)
-) -> list[ClassOut]:
+@router.get("/teacher/classes", response=list[ClassOut])
+async def list_classes(request: HttpRequest) -> list[ClassOut]:
     """Классы этого педагога с количеством присоединившихся учеников."""
-    teacher = _require_teacher(user)
-    rows = (
-        await session.execute(
-            select(SchoolClass, func.count(User.id))
-            .outerjoin(User, User.class_id == SchoolClass.id)
-            .where(SchoolClass.teacher_id == teacher.id)
-            .group_by(SchoolClass.id)
-            .order_by(SchoolClass.created_at.desc())
-        )
-    ).all()
-    return [_class_out(school_class, count) for school_class, count in rows]
+    teacher = _require_teacher(request.auth)
+    return [
+        _class_out(school_class, school_class.students_count)
+        async for school_class in SchoolClass.objects.filter(teacher=teacher)
+        .annotate(students_count=Count("students"))
+        .order_by("-created_at")
+    ]
 
 
-async def _owned_class(session: AsyncSession, teacher: User, class_id) -> SchoolClass:
-    school_class = await session.scalar(
-        select(SchoolClass).where(SchoolClass.id == class_id, SchoolClass.teacher_id == teacher.id)
-    )
+async def _owned_class(teacher: User, class_id) -> SchoolClass:
+    school_class = await SchoolClass.objects.filter(id=class_id, teacher=teacher).afirst()
     if school_class is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Класс не найден среди ваших классов")
+        raise HttpError(404, "Класс не найден среди ваших классов")
     return school_class
 
 
-@router.get("/api/teacher/classes/{class_id}/leaderboard", response_model=LeaderboardResponse)
-async def leaderboard(
-    class_id: uuid.UUID,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> LeaderboardResponse:
+@router.get("/teacher/classes/{class_id}/leaderboard", response=LeaderboardResponse)
+async def leaderboard(request: HttpRequest, class_id: uuid.UUID) -> LeaderboardResponse:
     """Рейтинг класса по опыту.
 
     В отличие от обезличенной сводки здесь видны имена: это рабочий список
     своего класса, педагог и так знает, кто у него учится. Доступ — только
     владельцу класса.
     """
-    teacher = _require_teacher(user)
-    school_class = await _owned_class(session, teacher, class_id)
+    teacher = _require_teacher(request.auth)
+    school_class = await _owned_class(teacher, class_id)
 
-    rows = (
-        await session.execute(
-            select(
-                User.id,
-                User.full_name,
-                func.coalesce(UserStats.xp, 0),
-                func.coalesce(UserStats.streak_days, 0),
-                func.count(TaskAttempt.id),
-                func.count(TaskAttempt.id).filter(TaskAttempt.is_correct.is_(True)),
-                func.count(func.distinct(TestResult.id)),
-            )
-            .outerjoin(UserStats, UserStats.user_id == User.id)
-            .outerjoin(TaskAttempt, TaskAttempt.user_id == User.id)
-            .outerjoin(TestResult, TestResult.user_id == User.id)
-            .where(User.class_id == class_id, User.role == UserRole.student)
-            .group_by(User.id, User.full_name, UserStats.xp, UserStats.streak_days)
-            .order_by(func.coalesce(UserStats.xp, 0).desc(), User.full_name)
-        )
-    ).all()
+    students = [
+        student
+        async for student in User.objects.filter(class_ref_id=class_id, role=UserRole.student)
+    ]
+    ids = [student.id for student in students]
+
+    # Три отдельных агрегата, а не один запрос с двумя JOIN: попытки,
+    # перемноженные на прохождения, удваивали число решённых задач у всех,
+    # кто прошёл тест дважды.
+    stats = {s.user_id: s async for s in UserStats.objects.filter(user_id__in=ids)}
+    attempts = {
+        row["user_id"]: row
+        async for row in TaskAttempt.objects.filter(user_id__in=ids)
+        .values("user_id")
+        .annotate(solved=Count("id"), correct=Count("id", filter=Q(is_correct=True)))
+    }
+    tests_done = {
+        row["user_id"]
+        async for row in TestResult.objects.filter(user_id__in=ids).values("user_id").distinct()
+    }
 
     # Пометка о доверии берётся из последнего прохождения: если ученик
     # прокликал тест, педагог должен видеть это рядом с его цифрами, иначе
     # решения принимаются по числам, за которыми ничего нет.
     заметки: dict[uuid.UUID, str] = {}
-    прохождения = (
-        await session.execute(
-            select(TestResult.user_id, TestResult.integrity)
-            .where(TestResult.user_id.in_([row[0] for row in rows]))
-            .order_by(TestResult.user_id, TestResult.completed_at.desc())
-        )
-    ).all()
-    for user_id, integrity in прохождения:
-        if user_id not in заметки:
-            note = integrity_note(integrity)
-            if note:
-                заметки[user_id] = note
+    последние: set[uuid.UUID] = set()
+    async for user_id, integrity in (
+        TestResult.objects.filter(user_id__in=ids)
+        .order_by("user_id", "-completed_at")
+        .values_list("user_id", "integrity")
+    ):
+        if user_id in последние:
+            continue
+        последние.add(user_id)
+        note = integrity_note(integrity)
+        if note:
+            заметки[user_id] = note
 
-    return LeaderboardResponse(
-        class_id=school_class.id,
-        class_name=school_class.name,
-        rows=[
+    def xp_of(student: User) -> int:
+        return stats[student.id].xp if student.id in stats else 0
+
+    students.sort(key=lambda s: (-xp_of(s), s.full_name is None, s.full_name or ""))
+
+    rows = []
+    for index, student in enumerate(students, start=1):
+        xp = xp_of(student)
+        solved = attempts.get(student.id, {}).get("solved", 0)
+        correct = attempts.get(student.id, {}).get("correct", 0)
+        rows.append(
             LeaderboardRow(
                 rank=index,
-                student_id=student_id,
-                full_name=full_name or "Без имени",
+                student_id=student.id,
+                full_name=student.full_name or "Без имени",
                 level=level_of(xp),
                 xp=xp,
-                streak_days=streak,
+                streak_days=stats[student.id].streak_days if student.id in stats else 0,
                 solved=solved,
                 correct=correct,
                 accuracy=round(correct / solved, 3) if solved else 0.0,
-                test_done=tests > 0,
-                integrity_note=заметки.get(student_id),
+                test_done=student.id in tests_done,
+                integrity_note=заметки.get(student.id),
             )
-            for index, (student_id, full_name, xp, streak, solved, correct, tests)
-            in enumerate(rows, start=1)
-        ],
-    )
+        )
 
-
-@router.post("/api/teacher/classes/{class_id}/assignments", response_model=AssignmentOut)
-async def create_assignment(
-    class_id: uuid.UUID,
-    payload: CreateAssignmentRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> AssignmentOut:
-    """Выдать классу задание — набор предметов и размер пака."""
-    teacher = _require_teacher(user)
-    await _owned_class(session, teacher, class_id)
-
-    assignment = ClassAssignment(
-        class_id=class_id,
-        teacher_id=teacher.id,
-        title=payload.title.strip(),
-        subjects=payload.subjects,
-        size=payload.size,
-        difficulty=payload.difficulty,
-        due_date=payload.due_date,
-    )
-    session.add(assignment)
-    await session.commit()
-    await session.refresh(assignment)
-    return AssignmentOut(**_assignment_fields(assignment), completed_by=0, students_total=0)
+    return LeaderboardResponse(class_id=school_class.id, class_name=school_class.name, rows=rows)
 
 
 def _assignment_fields(assignment: ClassAssignment) -> dict:
@@ -247,36 +205,44 @@ def _assignment_fields(assignment: ClassAssignment) -> dict:
     }
 
 
-@router.get("/api/teacher/classes/{class_id}/assignments", response_model=list[AssignmentOut])
-async def list_assignments(
-    class_id: uuid.UUID,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> list[AssignmentOut]:
+@router.post("/teacher/classes/{class_id}/assignments", response=AssignmentOut)
+async def create_assignment(
+    request: HttpRequest, class_id: uuid.UUID, payload: CreateAssignmentRequest
+) -> AssignmentOut:
+    """Выдать классу задание — набор предметов и размер пака."""
+    teacher = _require_teacher(request.auth)
+    await _owned_class(teacher, class_id)
+
+    assignment = await ClassAssignment.objects.acreate(
+        school_class_id=class_id,
+        teacher=teacher,
+        title=payload.title.strip(),
+        subjects=payload.subjects,
+        size=payload.size,
+        difficulty=payload.difficulty,
+        due_date=payload.due_date,
+    )
+    return AssignmentOut(**_assignment_fields(assignment), completed_by=0, students_total=0)
+
+
+@router.get("/teacher/classes/{class_id}/assignments", response=list[AssignmentOut])
+async def list_assignments(request: HttpRequest, class_id: uuid.UUID) -> list[AssignmentOut]:
     """Задания класса и сколько учеников за них уже брались."""
-    teacher = _require_teacher(user)
-    await _owned_class(session, teacher, class_id)
+    teacher = _require_teacher(request.auth)
+    await _owned_class(teacher, class_id)
 
-    assignments = (
-        await session.scalars(
-            select(ClassAssignment)
-            .where(ClassAssignment.class_id == class_id)
-            .order_by(ClassAssignment.created_at.desc())
-        )
-    ).all()
-    students_total = await _students_count(session, class_id)
-
+    students_total = await _students_count(class_id)
     result = []
-    for assignment in assignments:
+    async for assignment in ClassAssignment.objects.filter(school_class_id=class_id).order_by(
+        "-created_at"
+    ):
         # «взялся за задание» = решал задачи по его предметам после выдачи
-        query = (
-            select(func.count(func.distinct(TaskAttempt.user_id)))
-            .join(User, User.id == TaskAttempt.user_id)
-            .where(User.class_id == class_id, TaskAttempt.answered_at >= assignment.created_at)
+        attempts = TaskAttempt.objects.filter(
+            user__class_ref_id=class_id, answered_at__gte=assignment.created_at
         )
         if assignment.subjects:
-            query = query.where(TaskAttempt.subject.in_(assignment.subjects))
-        completed_by = await session.scalar(query) or 0
+            attempts = attempts.filter(subject__in=assignment.subjects)
+        completed_by = await attempts.values("user_id").distinct().acount()
         result.append(
             AssignmentOut(
                 **_assignment_fields(assignment),
@@ -287,54 +253,41 @@ async def list_assignments(
     return result
 
 
-@router.delete("/api/teacher/assignments/{assignment_id}")
-async def delete_assignment(
-    assignment_id: uuid.UUID,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, str]:
-    teacher = _require_teacher(user)
-    assignment = await session.get(ClassAssignment, assignment_id)
-    if assignment is None or assignment.teacher_id != teacher.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание не найдено")
-    await session.delete(assignment)
-    await session.commit()
+@router.delete("/teacher/assignments/{assignment_id}")
+async def delete_assignment(request: HttpRequest, assignment_id: uuid.UUID) -> dict[str, str]:
+    teacher = _require_teacher(request.auth)
+    deleted, _ = await ClassAssignment.objects.filter(id=assignment_id, teacher=teacher).adelete()
+    if not deleted:
+        raise HttpError(404, "Задание не найдено")
     return {"status": "deleted"}
 
 
-@router.get("/api/classes/my-assignments", response_model=list[AssignmentOut])
-async def my_assignments(
-    user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)
-) -> list[AssignmentOut]:
+@router.get("/classes/my-assignments", response=list[AssignmentOut])
+async def my_assignments(request: HttpRequest) -> list[AssignmentOut]:
     """Задания класса — для ученика."""
-    if user.class_id is None:
+    user = request.auth
+    if user.class_ref_id is None:
         return []
-    assignments = (
-        await session.scalars(
-            select(ClassAssignment)
-            .where(ClassAssignment.class_id == user.class_id)
-            .order_by(ClassAssignment.created_at.desc())
-            .limit(20)
-        )
-    ).all()
-    return [AssignmentOut(**_assignment_fields(a)) for a in assignments]
+    return [
+        AssignmentOut(**_assignment_fields(a))
+        async for a in ClassAssignment.objects.filter(school_class_id=user.class_ref_id).order_by(
+            "-created_at"
+        )[:20]
+    ]
 
 
-@router.post("/api/classes/join", response_model=JoinClassResponse)
-async def join_class(
-    payload: JoinClassRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> JoinClassResponse:
+@router.post("/classes/join", response=JoinClassResponse)
+async def join_class(request: HttpRequest, payload: JoinClassRequest) -> JoinClassResponse:
     """Ученик вступает в класс по коду, полученному от педагога."""
+    user = request.auth
     code = payload.join_code.strip().upper()
-    school_class = await session.scalar(select(SchoolClass).where(SchoolClass.join_code == code))
+    school_class = await SchoolClass.objects.filter(join_code=code).afirst()
     if school_class is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Код класса не найден — проверьте, что ввели верно")
+        raise HttpError(404, "Код класса не найден — проверьте, что ввели верно")
     if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_409_CONFLICT, "В класс вступают ученики, а не педагоги")
+        raise HttpError(409, "В класс вступают ученики, а не педагоги")
 
-    user.class_id = school_class.id
+    user.class_ref_id = school_class.id
     user.school_class = school_class.name
-    await session.commit()
+    await user.asave(update_fields=["class_ref", "school_class"])
     return JoinClassResponse(class_id=school_class.id, class_name=school_class.name)

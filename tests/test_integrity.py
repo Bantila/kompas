@@ -115,13 +115,9 @@ async def test_submit_stores_integrity(client, согласившийся) -> No
 
     assert response.status_code == 201
 
-    from sqlalchemy import select
-
-    from app.database import SessionLocal
     from app.models import TestResult
 
-    async with SessionLocal() as session:
-        результат = (await session.scalars(select(TestResult))).all()[-1]
+    результат = await TestResult.objects.order_by("-completed_at").afirst()
 
     assert результат.integrity["trust"] == "low"
     assert результат.integrity["flags"], "признаки должны сохраняться, а не только вердикт"

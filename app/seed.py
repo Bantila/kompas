@@ -14,9 +14,7 @@ import asyncio
 import logging
 import random
 
-from sqlalchemy import select
-
-from app.database import SessionLocal
+import app.django_setup  # noqa: F401
 from app.models import Recommendation, SchoolClass, TestResult, User, UserRole
 from app.services.ai_recommender import recommend_professions
 from app.services.security import hash_password
@@ -100,79 +98,62 @@ def build_answers(archetype: dict, rng: random.Random) -> dict:
 async def seed() -> None:
     rng = random.Random(42)  # фиксированный seed — демо воспроизводимо
 
-    async with SessionLocal() as session:
-        teacher = await session.scalar(select(User).where(User.max_user_id == TEACHER_ID))
-        if teacher is None:
-            teacher = User(
-                max_user_id=TEACHER_ID,
-                role=UserRole.teacher,
-                full_name="Ирина Петровна",
-            )
-            session.add(teacher)
-        # логин проставляем и старому демо-педагогу, созданному до появления auth
-        teacher.email = TEACHER_EMAIL
-        teacher.hashed_password = hash_password(TEACHER_PASSWORD)
-        await session.flush()
-        logger.info("Педагог %s: %s / %s", TEACHER_ID, TEACHER_EMAIL, TEACHER_PASSWORD)
+    teacher, _ = await User.objects.aget_or_create(
+        max_user_id=TEACHER_ID,
+        defaults={"role": UserRole.teacher, "full_name": "Ирина Петровна"},
+    )
+    # логин проставляем и старому демо-педагогу, созданному до появления auth
+    teacher.email = TEACHER_EMAIL
+    teacher.hashed_password = hash_password(TEACHER_PASSWORD)
+    await teacher.asave(update_fields=["email", "hashed_password"])
+    logger.info("Педагог %s: %s / %s", TEACHER_ID, TEACHER_EMAIL, TEACHER_PASSWORD)
 
-        school_class = await session.scalar(
-            select(SchoolClass).where(SchoolClass.join_code == DEMO_JOIN_CODE)
+    school_class, создан = await SchoolClass.objects.aget_or_create(
+        join_code=DEMO_JOIN_CODE, defaults={"name": SCHOOL_CLASS, "teacher": teacher}
+    )
+    if создан:
+        logger.info("Класс %s создан, код присоединения: %s", SCHOOL_CLASS, DEMO_JOIN_CODE)
+
+    created = 0
+    for index, (full_name, archetype_index) in enumerate(STUDENTS):
+        max_user_id = f"student_demo_{index}"
+        existing = await User.objects.filter(max_user_id=max_user_id).afirst()
+        if existing is not None:
+            # догоняем старые демо-данные, созданные до появления SchoolClass
+            if existing.class_ref_id is None:
+                existing.class_ref = school_class
+                await existing.asave(update_fields=["class_ref"])
+            continue
+
+        archetype = ARCHETYPES[archetype_index]
+        user = await User.objects.acreate(
+            max_user_id=max_user_id,
+            role=UserRole.student,
+            full_name=full_name,
+            school_class=SCHOOL_CLASS,
+            class_ref=school_class,
         )
-        if school_class is None:
-            school_class = SchoolClass(
-                name=SCHOOL_CLASS, teacher_id=teacher.id, join_code=DEMO_JOIN_CODE
-            )
-            session.add(school_class)
-            await session.flush()
-            logger.info("Класс %s создан, код присоединения: %s", SCHOOL_CLASS, DEMO_JOIN_CODE)
 
-        created = 0
-        for index, (full_name, archetype_index) in enumerate(STUDENTS):
-            max_user_id = f"student_demo_{index}"
-            existing = await session.scalar(select(User).where(User.max_user_id == max_user_id))
-            if existing is not None:
-                # догоняем старые демо-данные, созданные до появления SchoolClass
-                if existing.class_id is None:
-                    existing.class_id = school_class.id
-                continue
+        answers = build_answers(archetype, rng)
+        scores = calculate_scores(answers)
+        test_result = await TestResult.objects.acreate(
+            user=user, raw_answers=answers, computed_scores=scores
+        )
 
-            archetype = ARCHETYPES[archetype_index]
-            user = User(
-                max_user_id=max_user_id,
-                role=UserRole.student,
-                full_name=full_name,
-                school_class=SCHOOL_CLASS,
-                class_id=school_class.id,
-            )
-            session.add(user)
-            await session.flush()
-
-            answers = build_answers(archetype, rng)
-            scores = calculate_scores(answers)
-            test_result = TestResult(
-                user_id=user.id, raw_answers=answers, computed_scores=scores
-            )
-            session.add(test_result)
-            await session.flush()
-
-            ai_result = await recommend_professions(scores)
-            session.add(
-                Recommendation(
-                    test_result_id=test_result.id,
-                    ai_response=ai_result.get("raw_response") or {},
-                    professions=ai_result["professions"],
-                    model_used=ai_result["model_used"],
-                )
-            )
-            created += 1
-            logger.info(
-                "  %s (%s) → %s",
-                full_name,
-                archetype["name"],
-                ai_result["professions"][0]["name"],
-            )
-
-        await session.commit()
+        ai_result = await recommend_professions(scores)
+        await Recommendation.objects.acreate(
+            test_result=test_result,
+            ai_response=ai_result.get("raw_response") or {},
+            professions=ai_result["professions"],
+            model_used=ai_result["model_used"],
+        )
+        created += 1
+        logger.info(
+            "  %s (%s) → %s",
+            full_name,
+            archetype["name"],
+            ai_result["professions"][0]["name"],
+        )
 
     if created:
         logger.info("Готово: добавлено учеников — %s, класс %s", created, SCHOOL_CLASS)

@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     jwt_ttl_hours: int = 24 * 30  # месяц: школьник не должен логиниться каждый день
 
     log_level: str = "INFO"
+    # Отладочные страницы Django со стеком. На стенде — только false.
+    debug: bool = False
 
 
 DEFAULT_JWT_SECRET = "dev-only-insecure-secret"

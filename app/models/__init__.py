@@ -1,4 +1,4 @@
-"""Импорт всех моделей — нужен, чтобы Alembic видел их в Base.metadata."""
+"""Импорт всех моделей — Django ищет модели в app.models."""
 
 from app.models.assignment import ClassAssignment
 from app.models.bot_account import BotAccount

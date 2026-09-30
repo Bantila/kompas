@@ -4,7 +4,7 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 
 # Системные зависимости, нужные ТОЛЬКО для сборки некоторых пакетов
-# (например, asyncpg/psycopg могут требовать компиляции)
+# (например, psycopg может требовать компиляции)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ---------- Stage 2: runtime ----------
 FROM python:3.12-slim AS runtime
 
-# Только рантайм-зависимость для psycopg/asyncpg (без -dev, без build-essential)
+# Только рантайм-зависимость для psycopg (без -dev, без build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \

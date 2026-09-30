@@ -153,15 +153,11 @@ def test_fallback_survives_empty_profile() -> None:
 
 async def _токен(max_user_id: str) -> dict:
     """Заголовок владельца данных: история и рекомендации отдаются только ему."""
-    from sqlalchemy import select
-
-    from app.database import SessionLocal
     from app.models import User
     from app.services.security import create_access_token
 
-    async with SessionLocal() as session:
-        user = await session.scalar(select(User).where(User.max_user_id == max_user_id))
-        return {"Authorization": f"Bearer {create_access_token(user.id)}"}
+    user = await User.objects.aget(max_user_id=max_user_id)
+    return {"Authorization": f"Bearer {create_access_token(user.id)}"}
 
 
 async def test_submit_stores_and_returns_recommendations(

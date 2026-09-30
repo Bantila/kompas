@@ -1,13 +1,9 @@
 import uuid
-from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.database import Base
+from django.db import models
 
 
-class BotAccount(Base):
+class BotAccount(models.Model):
     """Собеседник бота: связка «пользователь мессенджера — аккаунт Компаса».
 
     Платформа хранится отдельным полем, а не отдельной таблицей: логика бота
@@ -15,26 +11,28 @@ class BotAccount(Base):
     ни новой таблицы, ни изменения сценариев.
     """
 
-    __tablename__ = "bot_accounts"
-    __table_args__ = (
-        UniqueConstraint("platform", "external_id", name="uq_bot_account_platform_user"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    platform: Mapped[str] = mapped_column(String(16), index=True)  # telegram | max
-    external_id: Mapped[str] = mapped_column(String(64), index=True)
-    chat_id: Mapped[str] = mapped_column(String(64))
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    platform = models.CharField(verbose_name="платформа", max_length=16, db_index=True)  # telegram | max
+    external_id = models.CharField(verbose_name="id в мессенджере", max_length=64, db_index=True)
+    chat_id = models.CharField(verbose_name="чат", max_length=64)
     # пока аккаунт не привязан — здесь None, а link_code ждёт ввода в приложении
-    user_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    user = models.ForeignKey(
+        "app.User", verbose_name="аккаунт", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
-    link_code: Mapped[str | None] = mapped_column(String(8), unique=True, index=True, nullable=True)
+    link_code = models.CharField(verbose_name="код привязки", max_length=8, unique=True, null=True, blank=True)
     # задача, которую бот сейчас спрашивает: ответ приходит следующим сообщением
-    current_task_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    current_task_id = models.CharField(verbose_name="текущая задача", max_length=16, null=True, blank=True)
+    created_at = models.DateTimeField(verbose_name="создан", auto_now_add=True)
 
-    # selectin, а не ленивая загрузка: в асинхронном коде обращение к связи
-    # «по требованию» падает — данные должны прийти вместе с самой записью
-    user: Mapped["User | None"] = relationship(lazy="selectin")  # noqa: F821
+    class Meta:
+        db_table = "bot_accounts"
+        verbose_name = "собеседник бота"
+        verbose_name_plural = "собеседники бота"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["platform", "external_id"], name="uq_bot_account_platform_user"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.platform}:{self.external_id}"

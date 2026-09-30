@@ -17,7 +17,7 @@ import logging
 import time
 from collections import defaultdict, deque
 
-from fastapi import HTTPException, Request, status
+from django.http import HttpRequest
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,15 @@ _попадания: dict[str, deque[float]] = defaultdict(deque)
 _ПОРОГ_УБОРКИ = 10_000
 
 
-def _клиент(request: Request) -> str:
+class RateLimited(Exception):
+    """Лимит исчерпан. Превращается в 429 с Retry-After в app/api.py."""
+
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(retry_after)
+        self.retry_after = retry_after
+
+
+def _клиент(request: HttpRequest) -> str:
     """Кто стучится.
 
     Берём X-Real-IP: Caddy перезаписывает его адресом соединения
@@ -40,7 +48,7 @@ def _клиент(request: Request) -> str:
     реальный = request.headers.get("x-real-ip")
     if реальный:
         return реальный.strip()
-    return request.client.host if request.client else "unknown"
+    return request.META.get("REMOTE_ADDR") or "unknown"
 
 
 def _убрать_протухшее(сейчас: float) -> None:
@@ -54,13 +62,13 @@ def reset() -> None:
 
 
 def limit(name: str, times: int, seconds: int):
-    """Зависимость FastAPI: не больше `times` запросов за `seconds` с адреса.
+    """Проверка для начала view: не больше `times` запросов за `seconds` с адреса.
 
     Окно скользящее, а не фиксированное: на границе фиксированных окон можно
     без помех отправить двойную порцию запросов.
     """
 
-    async def проверка(request: Request) -> None:
+    def проверка(request: HttpRequest) -> None:
         сейчас = time.monotonic()
         ключ = f"{name}:{_клиент(request)}"
         окно = _попадания[ключ]
@@ -71,11 +79,7 @@ def limit(name: str, times: int, seconds: int):
         if len(окно) >= times:
             ждать = int(seconds - (сейчас - окно[0])) + 1
             logger.warning("Лимит %s исчерпан для %s", name, ключ.split(":", 1)[1])
-            raise HTTPException(
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Слишком много запросов, попробуйте позже",
-                headers={"Retry-After": str(ждать)},
-            )
+            raise RateLimited(ждать)
 
         окно.append(сейчас)
         if len(_попадания) > _ПОРОГ_УБОРКИ:

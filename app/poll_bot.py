@@ -21,7 +21,7 @@ import sys
 import httpx
 
 from app.config import get_settings
-from app.database import SessionLocal
+import app.django_setup  # noqa: F401
 from app.services import bot_transport
 from app.services.bot_core import BotReply, handle
 
@@ -34,14 +34,11 @@ LONG_POLL_SECONDS = 25
 async def _dispatch(event, sender) -> None:
     """Событие → ответ → отправка. Общая часть для Telegram и MAX."""
     settings = get_settings()
-    async with SessionLocal() as session:
-        try:
-            reply = await handle(session, event, app_url=settings.app_public_url or None)
-            await session.commit()
-        except Exception:  # noqa: BLE001 — один сбойный запрос не должен ронять бота
-            logger.exception("Сбой обработки сообщения")
-            await session.rollback()
-            reply = BotReply(text="Что-то пошло не так на моей стороне. Попробуй ещё раз чуть позже.")
+    try:
+        reply = await handle(event, app_url=settings.app_public_url or None)
+    except Exception:  # noqa: BLE001 — один сбойный запрос не должен ронять бота
+        logger.exception("Сбой обработки сообщения")
+        reply = BotReply(text="Что-то пошло не так на моей стороне. Попробуй ещё раз чуть позже.")
 
     await sender(event.chat_id, reply)
     logger.info("ответ отправлен в чат %s", event.chat_id)

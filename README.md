@@ -22,8 +22,9 @@
 
 | Слой | Технология |
 |---|---|
-| API | Python 3.12, FastAPI, Pydantic v2 |
-| БД | PostgreSQL 16, SQLAlchemy 2.0 (async), Alembic |
+| API | Python 3.12, Django 6.1, Django Ninja, Pydantic v2 |
+| БД | PostgreSQL 16, Django ORM (async), миграции Django |
+| Админка | Django admin на `/admin` |
 | ИИ | GigaChat через GigaChain, ответ по строгой JSON-схеме |
 | HTTP | httpx (async) |
 | Фронтенд | Статика без сборки: HTML + ванильный JS, светлая и тёмная темы на токенах |
@@ -95,13 +96,14 @@ curl http://localhost/health
 ```
 
 Миграции накатываются автоматически при старте контейнера — отдельный
-`alembic upgrade head` выполнять не нужно.
+`python manage.py migrate` выполнять не нужно.
 
 | Адрес | Что это |
 |---|---|
 | http://localhost/ | мини-приложение ученика: тест, тренажёр, профессии |
 | http://localhost/static/teacher.html | кабинет педагога: классы, рейтинг, задания, сводка |
 | http://localhost/docs | Swagger-документация API |
+| http://localhost/admin/ | Django admin: все данные сервиса (вход — `docker compose exec backend python manage.py createsuperuser`) |
 
 Демо-доступ педагога: `teacher@demo.ru` / `demo1234`. Код класса для учеников —
 `DEMO7B`.
@@ -157,7 +159,7 @@ python -m venv .venv
 | Окружение | убеждается, что `.venv` создано, иначе печатает команды создания и выходит |
 | Настройки | создаёт `.env` из `.env.example`, если файла ещё нет |
 | Порт | если порт занят — сообщает об этом и не поднимает второй сервер |
-| Миграции | накатывает `alembic upgrade head` и останавливается, если схема не сошлась |
+| Миграции | накатывает `python manage.py migrate` и останавливается, если схема не сошлась |
 | Сервер | поднимает uvicorn и печатает адреса приложения, кабинета и Swagger |
 
 Ключи:
@@ -545,7 +547,7 @@ soft skills. Черновик теста лежит на сервере и пр�
 слабые предметы и средние баллы. Индивидуальных результатов там нет.
 
 Фронтенд — три файла в `app/static/`, без npm, сборки и внешних зависимостей:
-статику отдаёт сам FastAPI, снаружи её проксирует Caddy.
+статику отдаёт сам Django, снаружи её проксирует Caddy.
 
 ## API
 
@@ -649,10 +651,14 @@ strict=True)`): API сам не пропустит ответ, где профе
 
 ```
 ├── app/
-│   ├── main.py                     # FastAPI, CORS, /health
+│   ├── main.py                     # ASGI-приложение для uvicorn
+│   ├── settings.py                 # настройки Django из app/config.py
+│   ├── urls.py                     # /, /health, /admin, /api, статика
+│   ├── api.py                      # NinjaAPI: роутеры и обработчики ошибок
+│   ├── admin.py                    # Django admin
 │   ├── config.py                   # pydantic-settings, чтение .env
-│   ├── database.py                 # async engine, session, Base
-│   ├── models/                     # User, TestResult, TestProgress, классы, геймификация
+│   ├── models/                     # Django-модели: User, TestResult, классы, геймификация
+│   ├── migrations/                 # миграции Django
 │   ├── schemas/                    # Pydantic-схемы запросов и ответов
 │   ├── routers/                    # auth, tests, practice, classes, teacher, recommendations, bot
 │   ├── services/
@@ -665,13 +671,13 @@ strict=True)`): API сам не пропустит ответ, где профе
 │   ├── static/                     # мини-приложение: index.html, app.js, teacher.html
 │   └── tests_data/questions.json   # банк из 74 вопросов, в тесте задаётся 37
 ├── tests/                          # pytest, БД — SQLite во временном файле
-├── alembic/                        # миграции
 ├── demo/                           # автономная демо-страница и её сборщик
 ├── docs/                           # инструкция по деплою, архитектура, тех. документация
 ├── docker/
 │   ├── entrypoint.sh               # миграции при старте контейнера
 │   └── caddy/Caddyfile             # reverse proxy, единственная точка входа
 ├── scripts/                        # запуск стенда под Windows без Docker
+├── manage.py                       # migrate, createsuperuser, shell
 ├── Dockerfile                      # multistage: builder → runtime
 ├── docker-compose.yml              # Caddy + backend + postgres
 └── docker-compose.ssl.yml          # оверлей: порт 443 и сертификаты
@@ -691,6 +697,6 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-Тесты используют SQLite (`aiosqlite`) и мок httpx — поднятый PostgreSQL и реальные
+Тесты используют SQLite и мок httpx — поднятый PostgreSQL и реальные
 запросы к модели им не нужны. PostgreSQL остаётся основной БД проекта, SQLite
 живёт только в фикстурах.

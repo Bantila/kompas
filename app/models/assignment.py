@@ -1,15 +1,9 @@
 import uuid
-from datetime import date, datetime
-from typing import Any
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.database import Base
-from app.models._types import JSONColumn
+from django.db import models
 
 
-class ClassAssignment(Base):
+class ClassAssignment(models.Model):
     """Задание, выданное классу: набор предметов и размер пака.
 
     Храним не список конкретных задач, а правило подбора — тогда каждому ученику
@@ -17,22 +11,22 @@ class ClassAssignment(Base):
     и тот же список, который можно списать у соседа.
     """
 
-    __tablename__ = "class_assignments"
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    school_class = models.ForeignKey(
+        "app.SchoolClass", verbose_name="класс", on_delete=models.CASCADE, db_column="class_id", related_name="+"
+    )
+    teacher = models.ForeignKey("app.User", verbose_name="педагог", on_delete=models.CASCADE, related_name="+")
+    title = models.CharField(verbose_name="название", max_length=120)
+    subjects = models.JSONField(verbose_name="предметы", default=list, blank=True)
+    size = models.IntegerField(verbose_name="задач в паке", default=5)
+    difficulty = models.CharField(verbose_name="сложность", max_length=16, null=True, blank=True)
+    due_date = models.DateField(verbose_name="срок", null=True, blank=True)
+    created_at = models.DateTimeField(verbose_name="выдано", auto_now_add=True, db_index=True)
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    class_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("school_classes.id", ondelete="CASCADE"), index=True
-    )
-    teacher_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE")
-    )
-    title: Mapped[str] = mapped_column(String(120))
-    subjects: Mapped[list[Any]] = mapped_column(JSONColumn, default=list)
-    size: Mapped[int] = mapped_column(Integer, default=5)
-    difficulty: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), index=True
-    )
+    class Meta:
+        db_table = "class_assignments"
+        verbose_name = "задание классу"
+        verbose_name_plural = "задания классам"
 
-    school_class: Mapped["SchoolClass"] = relationship()  # noqa: F821
+    def __str__(self) -> str:
+        return self.title

@@ -13,39 +13,35 @@
 стирала — а вместе с ней и доказательство, что данные обрабатывались законно.
 """
 
-from __future__ import annotations
-
 import uuid
-from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.database import Base
+from django.db import models
+from django.utils import timezone
 
 
-class Consent(Base):
-    __tablename__ = "consents"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+class Consent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # не unique: у человека столько строк, сколько раз он давал согласие
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user = models.ForeignKey("app.User", verbose_name="ученик", on_delete=models.CASCADE, related_name="+")
 
     # Редакция документа. Без неё согласие бессмысленно: текст меняется, и надо
     # знать, с чем именно человек соглашался.
-    document_version: Mapped[str] = mapped_column(String(32))
+    document_version = models.CharField(verbose_name="редакция документа", max_length=32)
 
     # Кто дал согласие: сам ученик или законный представитель. Для детей до 14
     # согласие даёт родитель, и это должно быть видно в реестре.
-    granted_by: Mapped[str] = mapped_column(String(16), default="self")
+    granted_by = models.CharField(verbose_name="кем дано", max_length=16, default="self")
 
     # Возраст на момент согласия — то, чем обоснован выбор «сам» или «родитель».
     # Возраст назван самим учеником и ничем не подтверждён; храним именно
     # возраст, а не дату рождения: для проверки достаточно, а данных меньше.
-    age_at_consent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    age_at_consent = models.IntegerField(verbose_name="возраст", null=True, blank=True)
 
-    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    granted_at = models.DateTimeField(verbose_name="дано", default=timezone.now)
     # NULL — согласие действует. Дата — отозвано, обработка прекращена.
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at = models.DateTimeField(verbose_name="отозвано", null=True, blank=True)
+
+    class Meta:
+        db_table = "consents"
+        verbose_name = "согласие"
+        verbose_name_plural = "согласия"

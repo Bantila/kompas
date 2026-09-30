@@ -9,35 +9,35 @@
 перестаёт что-либо подтверждать.
 """
 
-from __future__ import annotations
-
 import uuid
-from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.database import Base
+from django.db import models
 
 
-class TeacherInvite(Base):
-    __tablename__ = "teacher_invites"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+class TeacherInvite(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code = models.CharField(verbose_name="код", max_length=32, unique=True)
 
     # Кем выдан. NULL — загрузочный код из консоли сервера: первого педагога
     # пригласить некому, а открывать ради него дыру в регистрации нельзя.
-    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    created_by = models.ForeignKey(
+        "app.User", verbose_name="выдал", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     # для кого выписан — чтобы в списке было видно, чей это код
-    note: Mapped[str] = mapped_column(String(120), default="")
+    note = models.CharField(verbose_name="для кого", max_length=120, default="", blank=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at = models.DateTimeField(verbose_name="выдан", auto_now_add=True)
+    expires_at = models.DateTimeField(verbose_name="действует до", )
 
-    used_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    used_by = models.ForeignKey(
+        "app.User", verbose_name="использовал", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_at = models.DateTimeField(verbose_name="использован", null=True, blank=True)
+
+    class Meta:
+        db_table = "teacher_invites"
+        verbose_name = "приглашение педагога"
+        verbose_name_plural = "приглашения педагогов"
+
+    def __str__(self) -> str:
+        return self.code

@@ -10,8 +10,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from django.db.models import Count, Q
 
 from app.models import TaskAttempt, UserAchievement, UserStats
 
@@ -60,38 +59,28 @@ def level_progress(xp: int) -> dict[str, int]:
     }
 
 
-async def _get_or_create_stats(session: AsyncSession, user_id) -> UserStats:
-    stats = await session.get(UserStats, user_id)
-    if stats is None:
-        stats = UserStats(user_id=user_id)
-        session.add(stats)
-        await session.flush()
-    return stats
-
-
-async def _earned_codes(session: AsyncSession, user_id) -> set[str]:
-    rows = await session.scalars(
-        select(UserAchievement.code).where(UserAchievement.user_id == user_id)
+def _итоги(user_id):
+    """Сколько задач решено и сколько верно — одним запросом."""
+    return TaskAttempt.objects.filter(user_id=user_id).aaggregate(
+        total=Count("id"), correct=Count("id", filter=Q(is_correct=True))
     )
-    return set(rows.all())
 
 
-async def _check_achievements(
-    session: AsyncSession, user_id, stats: UserStats, answered_at
-) -> list[dict[str, Any]]:
+async def _earned_codes(user_id) -> set[str]:
+    return {
+        code
+        async for code in UserAchievement.objects.filter(user_id=user_id).values_list("code", flat=True)
+    }
+
+
+async def _check_achievements(user_id, stats: UserStats, answered_at) -> list[dict[str, Any]]:
     """Выдать все достижения, условия которых уже выполнены."""
-    total, correct = (
-        await session.execute(
-            select(
-                func.count(TaskAttempt.id),
-                func.count(TaskAttempt.id).filter(TaskAttempt.is_correct.is_(True)),
-            ).where(TaskAttempt.user_id == user_id)
-        )
-    ).one()
+    итоги = await _итоги(user_id)
+    total, correct = итоги["total"], итоги["correct"]
     accuracy = correct / total if total else 0.0
     level = level_of(stats.xp)
 
-    earned = await _earned_codes(session, user_id)
+    earned = await _earned_codes(user_id)
     unlocked: list[str] = []
 
     def unlock(code: str, condition: bool) -> None:
@@ -115,39 +104,35 @@ async def _check_achievements(
     unlock("early_bird", answered_at.hour < 7)
 
     # пять последних попыток без единой ошибки
-    last_five = (
-        await session.scalars(
-            select(TaskAttempt.is_correct)
-            .where(TaskAttempt.user_id == user_id)
-            .order_by(TaskAttempt.answered_at.desc())
-            .limit(5)
-        )
-    ).all()
+    last_five = [
+        ok
+        async for ok in TaskAttempt.objects.filter(user_id=user_id)
+        .order_by("-answered_at")
+        .values_list("is_correct", flat=True)[:5]
+    ]
     unlock("perfect_5", len(last_five) == 5 and all(last_five))
 
-    per_subject = (
-        await session.execute(
-            select(TaskAttempt.subject, func.count(TaskAttempt.id))
-            .where(TaskAttempt.user_id == user_id)
-            .group_by(TaskAttempt.subject)
-        )
-    ).all()
-    unlock("subj_master", any(count >= 20 for _, count in per_subject))
+    per_subject = [
+        row["count"]
+        async for row in TaskAttempt.objects.filter(user_id=user_id)
+        .values("subject")
+        .annotate(count=Count("id"))
+    ]
+    unlock("subj_master", any(count >= 20 for count in per_subject))
     unlock("all_subjects", len(per_subject) >= TOTAL_SUBJECTS)
 
-    for code in unlocked:
-        session.add(UserAchievement(user_id=user_id, code=code))
+    await UserAchievement.objects.abulk_create(
+        [UserAchievement(user_id=user_id, code=code) for code in unlocked]
+    )
     return [{"code": code, **ACHIEVEMENTS[code]} for code in unlocked]
 
 
-async def register_answer(
-    session: AsyncSession, user_id, is_correct: bool, answered_at
-) -> dict[str, Any]:
+async def register_answer(user_id, is_correct: bool, answered_at) -> dict[str, Any]:
     """Начислить XP, обновить серию дней и выдать достижения.
 
     Возвращает то, что показать ученику сразу после ответа.
     """
-    stats = await _get_or_create_stats(session, user_id)
+    stats, _ = await UserStats.objects.aget_or_create(user_id=user_id)
     level_before = level_of(stats.xp)
 
     xp_earned = XP_CORRECT if is_correct else XP_WRONG
@@ -162,8 +147,8 @@ async def register_answer(
         stats.best_streak = max(stats.best_streak, stats.streak_days)
         stats.last_activity_date = today
 
-    await session.flush()
-    new_achievements = await _check_achievements(session, user_id, stats, answered_at)
+    await stats.asave()
+    new_achievements = await _check_achievements(user_id, stats, answered_at)
 
     return {
         "xp_earned": xp_earned,
@@ -175,23 +160,17 @@ async def register_answer(
     }
 
 
-async def progress_summary(session: AsyncSession, user_id) -> dict[str, Any]:
+async def progress_summary(user_id) -> dict[str, Any]:
     """Полная сводка прогресса для экрана профиля."""
-    stats = await session.get(UserStats, user_id)
+    stats = await UserStats.objects.filter(user_id=user_id).afirst()
     xp = stats.xp if stats else 0
     streak = stats.streak_days if stats else 0
     best = stats.best_streak if stats else 0
 
-    total, correct = (
-        await session.execute(
-            select(
-                func.count(TaskAttempt.id),
-                func.count(TaskAttempt.id).filter(TaskAttempt.is_correct.is_(True)),
-            ).where(TaskAttempt.user_id == user_id)
-        )
-    ).one()
+    итоги = await _итоги(user_id)
+    total, correct = итоги["total"], итоги["correct"]
 
-    earned = await _earned_codes(session, user_id)
+    earned = await _earned_codes(user_id)
     return {
         **level_progress(xp),
         "streak_days": streak,

@@ -15,17 +15,15 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from app.database import SessionLocal
+import app.django_setup  # noqa: F401
 from app.services import invites
 
 
 async def main() -> None:
     подпись = " ".join(sys.argv[1:]).strip()
 
-    async with SessionLocal() as session:
-        invite = await invites.create(session, note=подпись)
-        await session.commit()
-        код, истекает = invite.code, invite.expires_at
+    invite = await invites.create(note=подпись)
+    код, истекает = invite.code, invite.expires_at
 
     print()
     print(f"  Код приглашения: {код}")

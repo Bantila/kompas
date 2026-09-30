@@ -1,36 +1,29 @@
 import uuid
-from datetime import datetime
-from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.database import Base
-from app.models._types import JSONColumn
+from django.db import models
 
 
-class TestResult(Base):
-    __tablename__ = "test_results"
-    # история ученика читается по дате — составной индекс отдаёт её уже упорядоченной
-    __table_args__ = (Index("ix_test_results_user_completed", "user_id", "completed_at"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+class TestResult(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("app.User", verbose_name="ученик", on_delete=models.CASCADE, related_name="test_results")
     # сырые ответы: {"a1": 4, "b1_k1": {"selected_index": 1, "time_spent_seconds": 12}, ...}
-    raw_answers: Mapped[dict[str, Any]] = mapped_column(JSONColumn, default=dict)
+    raw_answers = models.JSONField(verbose_name="ответы", default=dict, blank=True)
     # результат calculate_scores()
-    computed_scores: Mapped[dict[str, Any]] = mapped_column(JSONColumn, default=dict)
+    computed_scores = models.JSONField(verbose_name="баллы", default=dict, blank=True)
     # насколько ответам можно доверять: уровень и сработавшие признаки.
     # Ничего не блокирует — нужно, чтобы педагог не принимал решения по
     # цифрам, за которыми стоит прокликанный за минуту тест
-    integrity: Mapped[dict[str, Any]] = mapped_column(JSONColumn, default=dict)
-    completed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    integrity = models.JSONField(verbose_name="доверие к ответам", default=dict, blank=True)
+    completed_at = models.DateTimeField(verbose_name="пройден", auto_now_add=True)
 
-    user: Mapped["User"] = relationship(back_populates="test_results")  # noqa: F821
-    recommendation: Mapped["Recommendation | None"] = relationship(  # noqa: F821
-        back_populates="test_result", cascade="all, delete-orphan", uselist=False, lazy="selectin"
-    )
+    class Meta:
+        db_table = "test_results"
+        verbose_name = "результат теста"
+        verbose_name_plural = "результаты тестов"
+        # история ученика читается по дате — составной индекс отдаёт её уже упорядоченной
+        indexes = [
+            models.Index(fields=["user", "completed_at"], name="ix_test_results_user_completed"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} — {self.completed_at:%d.%m.%Y %H:%M}"

@@ -10,13 +10,13 @@ import logging
 from collections import Counter
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from django.db.models import Count, Q
+from django.http import HttpRequest
+from ninja import Query, Router
+from ninja.errors import HttpError
 
-from app.database import get_session
-from app.models import Recommendation, TaskAttempt, TestResult, User
-from app.routers.auth import get_current_user
+from app.models import Recommendation, TaskAttempt, User
+from app.routers.auth import jwt_auth
 from app.schemas.practice import (
     AnswerRequest,
     AnswerResponse,
@@ -34,7 +34,7 @@ from app.services.test_scoring import load_questions
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/practice", tags=["practice"])
+router = Router(tags=["practice"])
 
 MAX_PACK_SIZE = 20
 
@@ -44,14 +44,10 @@ def _title_to_code() -> dict[str, str]:
     return {title.casefold(): code for code, title in load_questions()["subject_titles"].items()}
 
 
-async def _weak_subjects(session: AsyncSession, user: User) -> list[str]:
+async def _weak_subjects(user: User) -> list[str]:
     """Предметы для подтягивания из последней рекомендации ученика."""
-    recommendation = await session.scalar(
-        select(Recommendation)
-        .join(TestResult, TestResult.id == Recommendation.test_result_id)
-        .where(TestResult.user_id == user.id)
-        .order_by(Recommendation.created_at.desc())
-        .limit(1)
+    recommendation = await (
+        Recommendation.objects.filter(test_result__user_id=user.id).order_by("-created_at").afirst()
     )
     if recommendation is None:
         return []
@@ -66,19 +62,19 @@ async def _weak_subjects(session: AsyncSession, user: User) -> list[str]:
     return subjects
 
 
-@router.get("/pack", response_model=PackResponse)
+@router.get("/pack", response=PackResponse, auth=jwt_auth)
 async def get_pack(
-    size: int = Query(default=5, ge=1, le=MAX_PACK_SIZE),
-    subject: str | None = Query(default=None, description="Один предмет вместо автоподбора"),
-    difficulty: str | None = Query(default=None, pattern="^(easy|medium|hard)$"),
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    request: HttpRequest,
+    size: int = Query(5, ge=1, le=MAX_PACK_SIZE),
+    subject: str | None = Query(None, description="Один предмет вместо автоподбора"),
+    difficulty: str | None = Query(None, pattern="^(easy|medium|hard)$"),
 ) -> PackResponse:
     """Пак задач: по слабым предметам ученика, либо по указанному предмету."""
+    user = request.auth
     if subject:
         subjects, reason = [subject], "Ты выбрал этот предмет сам"
     else:
-        subjects = await _weak_subjects(session, user)
+        subjects = await _weak_subjects(user)
         reason = (
             "Эти предметы нужны профессиям, которые тебе подошли по тесту"
             if subjects
@@ -86,15 +82,12 @@ async def get_pack(
         )
 
     # уже решённые верно не повторяем: незачем гонять по кругу то, что усвоено
-    solved = set(
-        (
-            await session.scalars(
-                select(TaskAttempt.task_id).where(
-                    TaskAttempt.user_id == user.id, TaskAttempt.is_correct.is_(True)
-                )
-            )
-        ).all()
-    )
+    solved = {
+        task_id
+        async for task_id in TaskAttempt.objects.filter(user=user, is_correct=True).values_list(
+            "task_id", flat=True
+        )
+    }
 
     tasks = build_pack(subjects=subjects, size=size, difficulty=difficulty, exclude_ids=solved)
     if not tasks:  # всё решено — даём повтор, чтобы тренажёр не упирался в пустоту
@@ -107,21 +100,19 @@ async def get_pack(
     )
 
 
-@router.post("/answer", response_model=AnswerResponse)
-async def submit_answer(
-    payload: AnswerRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> AnswerResponse:
+@router.post("/answer", response=AnswerResponse, auth=jwt_auth)
+async def submit_answer(request: HttpRequest, payload: AnswerRequest) -> AnswerResponse:
     """Проверить ответ, разобрать ошибку и сохранить попытку."""
+    user = request.auth
     task = get_task(payload.task_id)
     if task is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Задача {payload.task_id!r} не найдена")
+        raise HttpError(404, f"Задача {payload.task_id!r} не найдена")
 
     verdict = classify(payload.answer, task["answer"], task["subject"])
 
-    attempt = TaskAttempt(
-        user_id=user.id,
+    # достижения считаются по истории попыток, поэтому текущая должна быть уже в ней
+    await TaskAttempt.objects.acreate(
+        user=user,
         task_id=task["id"],
         subject=task["subject"],
         difficulty=task["difficulty"],
@@ -130,13 +121,7 @@ async def submit_answer(
         error_type=verdict["error_type"],
         confidence=verdict["confidence"],
     )
-    session.add(attempt)
-    # достижения считаются по истории попыток, поэтому текущая должна быть уже в ней
-    await session.flush()
-    reward = await register_answer(
-        session, user.id, verdict["is_correct"], datetime.now(UTC).astimezone()
-    )
-    await session.commit()
+    reward = await register_answer(user.id, verdict["is_correct"], datetime.now(UTC).astimezone())
 
     # ИИ объясняет только ошибки: на верном ответе объяснять нечего
     ai_explanation = None
@@ -162,50 +147,36 @@ async def submit_answer(
     )
 
 
-@router.get("/progress", response_model=ProgressResponse)
-async def progress(
-    user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)
-) -> ProgressResponse:
+@router.get("/progress", response=ProgressResponse, auth=jwt_auth)
+async def progress(request: HttpRequest) -> ProgressResponse:
     """Уровень, опыт, серия дней и достижения — для экрана профиля."""
-    return ProgressResponse(**await progress_summary(session, user.id))
+    return ProgressResponse(**await progress_summary(request.auth.id))
 
 
-@router.get("/stats", response_model=PracticeStatsResponse)
-async def practice_stats(
-    user: User = Depends(get_current_user), session: AsyncSession = Depends(get_session)
-) -> PracticeStatsResponse:
+@router.get("/stats", response=PracticeStatsResponse, auth=jwt_auth)
+async def practice_stats(request: HttpRequest) -> PracticeStatsResponse:
     """Сводка тренировок: точность по предметам и типы ошибок."""
-    rows = (
-        await session.execute(
-            select(
-                TaskAttempt.subject,
-                func.count(TaskAttempt.id),
-                func.count(TaskAttempt.id).filter(TaskAttempt.is_correct.is_(True)),
-            )
-            .where(TaskAttempt.user_id == user.id)
-            .group_by(TaskAttempt.subject)
-        )
-    ).all()
-
+    user = request.auth
     by_subject = [
         SubjectStat(
-            subject=subject,
-            total=total,
-            correct=correct,
-            accuracy=round(correct / total, 3) if total else 0.0,
+            subject=row["subject"],
+            total=row["total"],
+            correct=row["correct"],
+            accuracy=round(row["correct"] / row["total"], 3) if row["total"] else 0.0,
         )
-        for subject, total, correct in rows
+        async for row in TaskAttempt.objects.filter(user=user)
+        .values("subject")
+        .annotate(total=Count("id"), correct=Count("id", filter=Q(is_correct=True)))
     ]
     total_answered = sum(stat.total for stat in by_subject)
     total_correct = sum(stat.correct for stat in by_subject)
 
-    error_types = (
-        await session.scalars(
-            select(TaskAttempt.error_type).where(
-                TaskAttempt.user_id == user.id, TaskAttempt.is_correct.is_(False)
-            )
+    error_types = [
+        error_type
+        async for error_type in TaskAttempt.objects.filter(user=user, is_correct=False).values_list(
+            "error_type", flat=True
         )
-    ).all()
+    ]
 
     return PracticeStatsResponse(
         total_answered=total_answered,
@@ -217,7 +188,7 @@ async def practice_stats(
 
 
 @router.get("/subjects")
-async def subjects() -> dict:
+async def subjects(request: HttpRequest) -> dict:
     """Предметы банка задач с названиями и количеством — для выбора в интерфейсе."""
     titles = load_questions()["subject_titles"]
     counter = Counter(task["subject"] for task in load_tasks()["tasks"])

@@ -14,10 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models import BotAccount, Recommendation, TaskAttempt, TestResult
+from app.models import BotAccount, Recommendation, SchoolClass, TaskAttempt
 from app.services.ai_recommender import explain_mistake
 from app.services.error_classifier import classify
 from app.services.gamification import progress_summary, register_answer
@@ -72,32 +69,35 @@ HELP_TEXT = (
 )
 
 
-async def _account(session: AsyncSession, event: BotEvent) -> BotAccount:
-    """Найти или завести собеседника бота."""
-    account = await session.scalar(
-        select(BotAccount).where(
-            BotAccount.platform == event.platform, BotAccount.external_id == event.external_id
-        )
+async def _account(event: BotEvent) -> BotAccount:
+    """Найти или завести собеседника бота.
+
+    select_related: в async-коде обращение к account.user «по требованию»
+    падает — пользователь должен прийти вместе с самой записью.
+    """
+    account = await (
+        BotAccount.objects.select_related("user")
+        .filter(platform=event.platform, external_id=event.external_id)
+        .afirst()
     )
     if account is None:
-        account = BotAccount(
+        account = await BotAccount.objects.acreate(
             platform=event.platform, external_id=event.external_id, chat_id=event.chat_id
         )
-        session.add(account)
-        await session.flush()
     elif account.chat_id != event.chat_id:
         account.chat_id = event.chat_id
+        await account.asave(update_fields=["chat_id"])
     return account
 
 
-async def _ensure_link_code(session: AsyncSession, account: BotAccount) -> str:
+async def _ensure_link_code(account: BotAccount) -> str:
     if account.link_code:
         return account.link_code
     for _ in range(20):
         code = "".join(secrets.choice(LINK_CODE_ALPHABET) for _ in range(LINK_CODE_LENGTH))
-        if await session.scalar(select(BotAccount).where(BotAccount.link_code == code)) is None:
+        if not await BotAccount.objects.filter(link_code=code).aexists():
             account.link_code = code
-            await session.flush()
+            await account.asave(update_fields=["link_code"])
             return code
     raise RuntimeError("Не удалось выдать код привязки")
 
@@ -121,29 +121,25 @@ def _looks_like_class_code(text: str) -> bool:
     return len(candidate) == LINK_CODE_LENGTH and all(c in LINK_CODE_ALPHABET for c in candidate)
 
 
-async def _join_class_by_code(session: AsyncSession, account: BotAccount, code: str) -> BotReply:
-    from app.models import SchoolClass  # локально: иначе циклический импорт моделей
-
-    school_class = await session.scalar(
-        select(SchoolClass).where(SchoolClass.join_code == code.strip().upper())
-    )
+async def _join_class_by_code(account: BotAccount, code: str) -> BotReply:
+    school_class = await SchoolClass.objects.filter(join_code=code.strip().upper()).afirst()
     if school_class is None:
         return BotReply(
             text="Такого кода класса нет — проверь у учителя.", buttons=MAIN_KEYBOARD
         )
 
-    account.user.class_id = school_class.id
+    account.user.class_ref_id = school_class.id
     account.user.school_class = school_class.name
-    await session.flush()
+    await account.user.asave(update_fields=["class_ref", "school_class"])
     return BotReply(
         text=f"Готово, ты в классе {school_class.name}. Учитель увидит тебя в сводке.",
         buttons=MAIN_KEYBOARD,
     )
 
 
-async def _greeting(session: AsyncSession, account: BotAccount, name: str) -> BotReply:
+async def _greeting(account: BotAccount, name: str) -> BotReply:
     who = f", {name}" if name else ""
-    progress = await progress_summary(session, account.user_id)
+    progress = await progress_summary(account.user_id)
     return BotReply(
         text=(
             f"Привет{who}! Это «Компас» — помогаю понять, какие профессии тебе подходят, "
@@ -154,8 +150,8 @@ async def _greeting(session: AsyncSession, account: BotAccount, name: str) -> Bo
     )
 
 
-async def _progress_reply(session: AsyncSession, account: BotAccount) -> BotReply:
-    p = await progress_summary(session, account.user_id)
+async def _progress_reply(account: BotAccount) -> BotReply:
+    p = await progress_summary(account.user_id)
     lines = [
         f"Уровень {p['level']} · {p['xp']} XP",
         f"До следующего уровня: {p['xp_to_next']}",
@@ -173,14 +169,8 @@ async def _progress_reply(session: AsyncSession, account: BotAccount) -> BotRepl
     return BotReply(text="\n".join(lines), buttons=MAIN_KEYBOARD)
 
 
-async def _careers_reply(session: AsyncSession, account: BotAccount) -> BotReply:
-    recommendation = await session.scalar(
-        select(Recommendation)
-        .join(TestResult, TestResult.id == Recommendation.test_result_id)
-        .where(TestResult.user_id == account.user_id)
-        .order_by(Recommendation.created_at.desc())
-        .limit(1)
-    )
+async def _careers_reply(account: BotAccount) -> BotReply:
+    recommendation = await _last_recommendation(account.user_id)
     if recommendation is None or not recommendation.professions:
         return BotReply(
             text="Ты ещё не проходил тест — пройди его в приложении, и я покажу подходящие профессии.",
@@ -196,25 +186,22 @@ async def _careers_reply(session: AsyncSession, account: BotAccount) -> BotReply
     return BotReply(text="\n".join(lines), buttons=MAIN_KEYBOARD)
 
 
-async def _next_task(session: AsyncSession, account: BotAccount) -> BotReply:
+async def _next_task(account: BotAccount) -> BotReply:
     """Выдать задачу — по слабым предметам ученика, без уже решённых верно."""
-    solved = set(
-        (
-            await session.scalars(
-                select(TaskAttempt.task_id).where(
-                    TaskAttempt.user_id == account.user_id, TaskAttempt.is_correct.is_(True)
-                )
-            )
-        ).all()
-    )
-    subjects = await _weak_subjects(session, account.user_id)
+    solved = {
+        task_id
+        async for task_id in TaskAttempt.objects.filter(
+            user_id=account.user_id, is_correct=True
+        ).values_list("task_id", flat=True)
+    }
+    subjects = await _weak_subjects(account.user_id)
     tasks = build_pack(subjects=subjects, size=1, exclude_ids=solved)
     if not tasks:
         tasks = build_pack(subjects=subjects, size=1)
 
     task = tasks[0]
     account.current_task_id = task["id"]
-    await session.flush()
+    await account.asave(update_fields=["current_task_id"])
 
     titles = load_questions()["subject_titles"]
     hint = f"\n\nПодсказка: {task['hint']}" if task.get("hint") else ""
@@ -227,14 +214,16 @@ async def _next_task(session: AsyncSession, account: BotAccount) -> BotReply:
     )
 
 
-async def _weak_subjects(session: AsyncSession, user_id) -> list[str]:
-    recommendation = await session.scalar(
-        select(Recommendation)
-        .join(TestResult, TestResult.id == Recommendation.test_result_id)
-        .where(TestResult.user_id == user_id)
-        .order_by(Recommendation.created_at.desc())
-        .limit(1)
+async def _last_recommendation(user_id) -> Recommendation | None:
+    return await (
+        Recommendation.objects.filter(test_result__user_id=user_id)
+        .order_by("-created_at")
+        .afirst()
     )
+
+
+async def _weak_subjects(user_id) -> list[str]:
+    recommendation = await _last_recommendation(user_id)
     if recommendation is None:
         return []
     mapping = {t.casefold(): c for c, t in load_questions()["subject_titles"].items()}
@@ -247,28 +236,26 @@ async def _weak_subjects(session: AsyncSession, user_id) -> list[str]:
     return subjects
 
 
-async def _check_answer(session: AsyncSession, account: BotAccount, answer: str) -> BotReply:
+async def _check_answer(account: BotAccount, answer: str) -> BotReply:
     task = get_task(account.current_task_id)
     account.current_task_id = None
+    await account.asave(update_fields=["current_task_id"])
     if task is None:
         return BotReply(text="Задача потерялась — попроси новую.", buttons=MAIN_KEYBOARD)
 
     verdict = classify(answer, task["answer"], task["subject"])
-    session.add(
-        TaskAttempt(
-            user_id=account.user_id,
-            task_id=task["id"],
-            subject=task["subject"],
-            difficulty=task["difficulty"],
-            user_answer=answer[:500],
-            is_correct=verdict["is_correct"],
-            error_type=verdict["error_type"],
-            confidence=verdict["confidence"],
-        )
+    await TaskAttempt.objects.acreate(
+        user_id=account.user_id,
+        task_id=task["id"],
+        subject=task["subject"],
+        difficulty=task["difficulty"],
+        user_answer=answer[:500],
+        is_correct=verdict["is_correct"],
+        error_type=verdict["error_type"],
+        confidence=verdict["confidence"],
     )
-    await session.flush()
     reward = await register_answer(
-        session, account.user_id, verdict["is_correct"], datetime.now(UTC).astimezone()
+        account.user_id, verdict["is_correct"], datetime.now(UTC).astimezone()
     )
 
     if verdict["is_correct"]:
@@ -298,36 +285,36 @@ async def _check_answer(session: AsyncSession, account: BotAccount, answer: str)
     return BotReply(text="\n".join(lines), buttons=MAIN_KEYBOARD)
 
 
-async def handle(session: AsyncSession, event: BotEvent, app_url: str | None = None) -> BotReply:
+async def handle(event: BotEvent, app_url: str | None = None) -> BotReply:
     """Главная точка входа: событие → ответ. Адаптеры зовут только её."""
-    account = await _account(session, event)
+    account = await _account(event)
     command = (event.payload or event.text or "").strip()
 
     if account.user_id is None:
         # Обычный путь: ученик открывает мини-приложение кнопкой, оно входит по
         # подписи мессенджера и само привязывает этот чат. Код нужен только там,
         # где мини-приложение недоступно — например, в браузере на компьютере.
-        code = await _ensure_link_code(session, account)
+        code = await _ensure_link_code(account)
         return _need_link(code, app_url)
 
     # уже привязан, но класс не указан — спросим код класса прямо в чате
-    if account.user.class_id is None and _looks_like_class_code(command):
-        return await _join_class_by_code(session, account, command)
+    if account.user.class_ref_id is None and _looks_like_class_code(command):
+        return await _join_class_by_code(account, command)
 
     lowered = command.casefold()
     if lowered in ("/start", "start", "начать"):
-        return await _greeting(session, account, event.first_name)
+        return await _greeting(account, event.first_name)
     if lowered in ("/help", BTN_HELP.casefold()):
         return BotReply(text=HELP_TEXT, buttons=MAIN_KEYBOARD)
     if lowered in ("/task", BTN_TASK.casefold()):
-        return await _next_task(session, account)
+        return await _next_task(account)
     if lowered in ("/progress", BTN_PROGRESS.casefold()):
-        return await _progress_reply(session, account)
+        return await _progress_reply(account)
     if lowered in ("/careers", BTN_CAREERS.casefold()):
-        return await _careers_reply(session, account)
+        return await _careers_reply(account)
 
     if account.current_task_id:
-        return await _check_answer(session, account, command)
+        return await _check_answer(account, command)
 
     return BotReply(
         text="Не понял. Выбери, что сделать:",

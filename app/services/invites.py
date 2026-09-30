@@ -11,8 +11,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncSession
+from asgiref.sync import sync_to_async
 
 from app.models import TeacherInvite, User
 
@@ -31,46 +30,44 @@ def generate_code() -> str:
 
 
 async def create(
-    session: AsyncSession,
     *,
     created_by: User | None = None,
     note: str = "",
     ttl_days: int = DEFAULT_TTL_DAYS,
 ) -> TeacherInvite:
     """Выписать одноразовый код."""
-    invite = TeacherInvite(
+    return await TeacherInvite.objects.acreate(
         code=generate_code(),
         created_by_id=created_by.id if created_by else None,
         note=note.strip()[:120],
         expires_at=datetime.now(timezone.utc) + timedelta(days=ttl_days),
     )
-    session.add(invite)
-    await session.flush()
-    return invite
 
 
-async def redeem(session: AsyncSession, code: str, user_id) -> bool:
+def redeem(code: str, user_id) -> bool:
     """Погасить код за пользователем. False — код не подошёл.
 
     Гасим одним UPDATE с условиями прямо в WHERE, а не «прочитать, проверить,
     записать»: между чтением и записью по одному коду успевают зарегистрироваться
     двое, и одноразовость превращается в фикцию.
+
+    Синхронная: регистрация зовёт её внутри transaction.atomic вместе с
+    созданием аккаунта. Из async-кода — aredeem.
     """
     нормализованный = code.strip().upper()
     if not нормализованный:
         return False
 
     сейчас = datetime.now(timezone.utc)
-    результат = await session.execute(
-        update(TeacherInvite)
-        .where(
-            TeacherInvite.code == нормализованный,
-            TeacherInvite.used_at.is_(None),
-            TeacherInvite.expires_at > сейчас,
-        )
-        .values(used_at=сейчас, used_by_id=user_id)
+    подошёл = (
+        TeacherInvite.objects.filter(
+            code=нормализованный, used_at__isnull=True, expires_at__gt=сейчас
+        ).update(used_at=сейчас, used_by_id=user_id)
+        == 1
     )
-    подошёл = результат.rowcount == 1
     if not подошёл:
         logger.info("Код приглашения не подошёл: %s", нормализованный)
     return подошёл
+
+
+aredeem = sync_to_async(redeem)

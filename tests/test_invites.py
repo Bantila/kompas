@@ -10,9 +10,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import func, select
-
-from app.database import SessionLocal
 from app.models import TeacherInvite, User, UserRole
 from app.services import invites
 
@@ -30,8 +27,7 @@ async def _зарегистрировать(client, код: str, email: str = П
 
 
 async def _счёт_пользователей() -> int:
-    async with SessionLocal() as session:
-        return await session.scalar(select(func.count()).select_from(User))
+    return await User.objects.acount()
 
 
 async def test_valid_code_lets_a_teacher_in(client, invite_code) -> None:
@@ -65,13 +61,10 @@ async def test_code_works_only_once(client, invite_code) -> None:
 
 async def test_expired_code_is_refused(client) -> None:
     """Просроченный код не должен работать: приглашение — не бессрочный пропуск."""
-    async with SessionLocal() as session:
-        протухший = TeacherInvite(
-            code="OLDX-OLDX-OLDX",
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
-        )
-        session.add(протухший)
-        await session.commit()
+    await TeacherInvite.objects.acreate(
+        code="OLDX-OLDX-OLDX",
+        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
 
     assert (await _зарегистрировать(client, "OLDX-OLDX-OLDX")).status_code == 403
 
@@ -129,11 +122,10 @@ async def test_stranger_cannot_issue_invites(client) -> None:
 
 async def test_student_cannot_issue_invites(client, full_answers) -> None:
     """Ученик не должен уметь производить педагогов."""
-    async with SessionLocal() as session:
-        ученик = User(max_user_id="tg_555", role=UserRole.student, full_name="Ученик")
-        session.add(ученик)
-        await session.commit()
-        айди = ученик.id
+    ученик = await User.objects.acreate(
+        max_user_id="tg_555", role=UserRole.student, full_name="Ученик"
+    )
+    айди = ученик.id
 
     from app.services.security import create_access_token
 
@@ -152,9 +144,7 @@ async def test_redeem_is_atomic(client, invite_code) -> None:
     Проверка «прочитать, убедиться, записать» пропустила бы обоих: между
     чтением и записью успевает вклиниться второй запрос.
     """
-    async with SessionLocal() as session:
-        первый = await invites.redeem(session, invite_code, None)
-        второй = await invites.redeem(session, invite_code, None)
-        await session.commit()
+    первый = await invites.aredeem(invite_code, None)
+    второй = await invites.aredeem(invite_code, None)
 
     assert [первый, второй] == [True, False]
